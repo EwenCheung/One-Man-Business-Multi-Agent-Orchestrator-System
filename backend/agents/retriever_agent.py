@@ -1,22 +1,25 @@
 """
-Internal Retriever Agent (Section 7.5)
+Internal Retriever Sub-Agent (Section 7.5)
 
 Retrieves internal business data with role-based access control.
-Combines structured SQL retrieval + semantic (pgvector) retrieval.
+Accepts a specific SubTask assigned by the Orchestrator, executes it,
+and returns the completed task to be aggregated.
 """
 
+from backend.graph.state import SubTask
 
-def retriever_agent(state: dict) -> dict:
+
+def retriever_agent(task: SubTask) -> dict:
     """
-    Fetch internal data filtered by sender role.
+    Execute the specific retrieval instructions.
 
-    Reads from state:
-        - raw_message
-        - predicted_role
-        - plan_steps
-
-    Writes to state:
-        - retrieved_context
+    Input state: SubTask
+    Returns: dict with 'completed_tasks' list to merge back to main state.
     """
-    # TODO: SQL queries + pgvector search, role-based filtering, reranking
-    raise NotImplementedError("Retriever agent not yet implemented")
+    # TODO: Execute SQL/pgvector search based on task["description"]
+    
+    completed_task = task.copy()
+    completed_task["status"] = "completed"
+    completed_task["result"] = f"(Stub) Retrieved data for instruction: {task['description']}"
+
+    return {"completed_tasks": [completed_task]}

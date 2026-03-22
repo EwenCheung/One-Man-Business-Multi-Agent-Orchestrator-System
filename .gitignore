@@ -25,7 +25,7 @@ yarn-error.log
 # Environments
 .venv
 venv
-env
+.env
 build/
 dist/
 *.egg-info/

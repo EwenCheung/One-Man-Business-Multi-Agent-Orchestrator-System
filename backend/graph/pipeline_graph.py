@@ -1,101 +1,117 @@
 """
 LangGraph Pipeline Graph (Section 6)
 
-Wires all agents and nodes into a single StateGraph using a
-hub-and-spoke architecture around the Orchestrator.
+Wires all agents into a Supervisor Multi-Agent network using
+LangGraph's `Send` API for parallel fan-out / fan-in execution.
 
 Flow:
-    receiver → triage → context_builder → policy → orchestrator
+    intake → orchestrator (Supervisor)
 
-    orchestrator → [conditional routing based on plan]:
-        - retriever → [returns to orchestrator]
-        - research  → [returns to orchestrator]
-        - policy    → [revisit, returns to orchestrator]
-        - reply     → [proceeds to risk layer]
+    orchestrator → [FAN-OUT parallel Send to tasks]:
+        - retriever(s)
+        - policy(s)
+        - research(s)
+        - memory_read(s)
 
-    reply → risk → update → END
+    [Nodes complete] → [FAN-IN aggregation back to Orchestrator]
+    orchestrator evaluates results.
+    If route_to_reply=True → reply → risk → memory_update → END
 """
 
+import operator
+from typing import Annotated, Sequence
+
 from langgraph.graph import StateGraph, END
+from langgraph.types import Send
 
-from backend.graph.state import PipelineState
+from backend.graph.state import PipelineState, SubTask
 
-# ── Import nodes (deterministic) ──────────────────────────────
-from backend.nodes.receiver import receiver_node
-from backend.nodes.context_builder import context_builder_node
+# ── Import nodes ──────────────────────────────
+from backend.nodes.intake import intake_node
 from backend.nodes.risk import risk_node
 
-# ── Import agents (LLM-powered) ──────────────────────────────
-from backend.agents.triage_agent import triage_agent
-from backend.agents.policy_agent import policy_agent
+# ── Import agents ──────────────────────────────
 from backend.agents.orchestrator_agent import orchestrator_agent
 from backend.agents.retriever_agent import retriever_agent
+from backend.agents.policy_agent import policy_agent
 from backend.agents.research_agent import research_agent
+from backend.agents.memory_agent import memory_agent_node
 from backend.agents.reply_agent import reply_agent
-from backend.agents.update_agent import update_agent
 
 
-def route_orchestrator(state: PipelineState) -> str:
+def continue_from_orchestrator(state: PipelineState):
     """
-    Hub-and-spoke routing: Decide the next step for the orchestrator.
-    Routes to internal retrieval, external research, revisiting policy,
-    or proceeding to draft the reply.
+    Supervisor Router Function.
+    Evaluates Active Tasks output by the Orchestrator and fans them out
+    using the Send API. If ready_to_reply is True, routes out of the loop.
     """
-    # Default to 'reply' if not specified
-    next_step = state.get("orchestrator_next_step", "reply")
-    
-    if next_step in ["retriever", "research", "policy"]:
-        return next_step
+    if state.get("route_to_reply", False):
+        return "reply"
+
+    tasks = state.get("active_tasks", [])
+    sends = []
+
+    # Fan-out: Map each task to its assigned sub-agent Node
+    for task in tasks:
+        assignee = task.get("assignee")
+        if assignee == "retriever":
+            sends.append(Send("retriever", task))
+        elif assignee == "policy":
+            sends.append(Send("policy", task))
+        elif assignee == "research":
+            sends.append(Send("research", task))
+        elif assignee == "memory":
+            sends.append(Send("memory_read", task))
+
+    # Fallback to reply if no valid tasks to prevent infinite loop
+    if not sends:
+        return "reply"
         
-    return "reply"
+    return sends
 
 
 def build_graph() -> StateGraph:
-    """
-    Construct and return the compiled LangGraph pipeline.
-
-    Returns:
-        A compiled StateGraph ready to .invoke() or .stream().
-    """
+    """Construct and compile the LangGraph Supervisor pipeline."""
     graph = StateGraph(PipelineState)
 
-    # ── Add nodes ─────────────────────────────────────────────
-    graph.add_node("receiver", receiver_node)
-    graph.add_node("triage", triage_agent)
-    graph.add_node("context_builder", context_builder_node)
-    graph.add_node("policy", policy_agent)
+    # ── Add main nodes ─────────────────────────────────────────
+    graph.add_node("intake", intake_node)
     graph.add_node("orchestrator", orchestrator_agent)
-    graph.add_node("retriever", retriever_agent)
-    graph.add_node("research", research_agent)
     graph.add_node("reply", reply_agent)
     graph.add_node("risk", risk_node)
-    graph.add_node("update", update_agent)
+    
+    # ── Add memory nodes (dual purpose) ────────────────────────
+    graph.add_node("memory_read", memory_agent_node)
+    graph.add_node("memory_update", memory_agent_node)
 
-    # ── Define Initial Linear Flow ────────────────────────────
-    graph.set_entry_point("receiver")
+    # ── Add Sub-Agent Nodes (mapped via Send) ──────────────────
+    graph.add_node("retriever", retriever_agent)
+    graph.add_node("policy", policy_agent)
+    graph.add_node("research", research_agent)
 
-    graph.add_edge("receiver", "triage")
-    graph.add_edge("triage", "context_builder")
-    graph.add_edge("context_builder", "policy")
-    graph.add_edge("policy", "orchestrator")
+    # ── Define Edge Flow ───────────────────────────────────────
+    graph.set_entry_point("intake")
+    graph.add_edge("intake", "orchestrator")
 
-    # ── Orchestrator Hub-and-Spoke Routing ────────────────────
-    graph.add_conditional_edges("orchestrator", route_orchestrator, {
-        "retriever": "retriever",
-        "research": "research",
-        "policy": "policy",
-        "reply": "reply",
-    })
+    # ── Supervisor Fan-Out Routing ─────────────────────────────
+    # Orchestrator conditionally sends to any number of parallel sub-agents
+    graph.add_conditional_edges(
+        "orchestrator", 
+        continue_from_orchestrator, 
+        ["retriever", "policy", "research", "memory_read", "reply"]
+    )
 
-    # Return paths back to Orchestrator hub
+    # ── Supervisor Fan-In Routing ──────────────────────────────
+    # Sub-agents always return their results back to the Orchestrator
     graph.add_edge("retriever", "orchestrator")
+    graph.add_edge("policy", "orchestrator")
     graph.add_edge("research", "orchestrator")
-    # Note: "policy" already has an edge to "orchestrator" above!
+    graph.add_edge("memory_read", "orchestrator")
 
-    # ── Final Output & Memory Flow ────────────────────────────
+    # ── Final Output Flow ──────────────────────────────────────
     graph.add_edge("reply", "risk")
-    graph.add_edge("risk", "update")
-    graph.add_edge("update", END)
+    graph.add_edge("risk", "memory_update")
+    graph.add_edge("memory_update", END)
 
     return graph.compile()
 

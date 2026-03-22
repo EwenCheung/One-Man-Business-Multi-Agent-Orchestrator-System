@@ -1,21 +1,24 @@
 """
-External Research Agent (Section 7.6)
+External Research Sub-Agent (Section 7.6)
 
-Optional — only invoked when internal retrieval is insufficient.
-Performs bounded external search (web, competitor analysis, etc.).
+Performs bounded external search if internal retrieval is insufficient.
+Accepts a specific SubTask assigned by the Orchestrator.
 """
 
+from backend.graph.state import SubTask
 
-def research_agent(state: dict) -> dict:
+
+def research_agent(task: SubTask) -> dict:
     """
-    Search external sources for supplementary information.
+    Execute external web search or competitor lookup.
 
-    Reads from state:
-        - raw_message
-        - retrieved_context
-
-    Writes to state:
-        - research_findings
+    Input state: SubTask
+    Returns: dict with 'completed_tasks' list to merge back to main state.
     """
-    # TODO: Web search API, competitor price lookup, summarise with LLM
-    raise NotImplementedError("Research agent not yet implemented")
+    # TODO: Call web search API / summarize findings
+    
+    completed_task = task.copy()
+    completed_task["status"] = "completed"
+    completed_task["result"] = f"(Stub) External research complete for: {task['description']}"
+
+    return {"completed_tasks": [completed_task]}

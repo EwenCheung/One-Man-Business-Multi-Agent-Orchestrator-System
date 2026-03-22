@@ -1,5 +1,5 @@
 """
-Skeleton tests — verify imports and structure work.
+Skeleton tests — verify imports and structure work for Supervisor graph.
 """
 
 import importlib
@@ -8,13 +8,12 @@ import importlib
 def test_agents_import():
     """All agent modules should be importable."""
     agents = [
-        "backend.agents.triage_agent",
-        "backend.agents.policy_agent",
         "backend.agents.orchestrator_agent",
         "backend.agents.retriever_agent",
         "backend.agents.research_agent",
+        "backend.agents.policy_agent",
         "backend.agents.reply_agent",
-        "backend.agents.update_agent",
+        "backend.agents.memory_agent",
     ]
     for module_name in agents:
         mod = importlib.import_module(module_name)
@@ -24,8 +23,7 @@ def test_agents_import():
 def test_nodes_import():
     """All node modules should be importable."""
     nodes = [
-        "backend.nodes.receiver",
-        "backend.nodes.context_builder",
+        "backend.nodes.intake",
         "backend.nodes.risk",
     ]
     for module_name in nodes:
@@ -36,7 +34,9 @@ def test_nodes_import():
 def test_graph_state_import():
     """Graph state should be importable."""
     from backend.graph.state import PipelineState
+    from backend.graph.pipeline_graph import pipeline
     assert PipelineState is not None
+    assert pipeline is not None
 
 
 def test_models_import():

@@ -1,23 +1,25 @@
 """
 LangGraph Pipeline State (Section 6)
 
-Defines the shared state that flows through the entire pipeline graph.
-Every node/agent reads from and writes to this state.
-
-See AGENTS.md Sections 7.1–7.10 for what each field represents.
+Defines the shared state for the Supervisor Multi-Agent architecture.
+Uses Annotated lists for fan-out / fan-in aggregation.
 """
 
-from __future__ import annotations
+import operator
+from typing import Any, TypedDict, Annotated
 
-from typing import Any, TypedDict
+class SubTask(TypedDict):
+    """A specifically assigned task for a sub-agent."""
+    task_id: str
+    description: str          # Instructions to the sub-agent
+    assignee: str             # "retriever" | "research" | "policy"
+    status: str               # "pending" | "completed"
+    result: str               # Detailed output from the sub-agent
 
 
 class PipelineState(TypedDict, total=False):
     """
     Shared state for the LangGraph pipeline.
-
-    Add fields here as you implement each agent/node.
-    Each agent reads what it needs and writes its outputs back.
     """
 
     # ── Input (set at the start) ──────────────────────────────
@@ -27,35 +29,23 @@ class PipelineState(TypedDict, total=False):
     thread_id: str
     source_type: str
 
-    # ── Receiver output ───────────────────────────────────────
-    sender_role: str          # "customer" | "supplier" | "investor" | "partner" | "unknown"
-
-    # ── Triage output ─────────────────────────────────────────
-    predicted_role: str
+    # ── Intake Agent output ───────────────────────────────────
+    sender_role: str
     intent_label: str
     urgency_level: str
-    needs_internal_retrieval: bool
-    needs_external_research: bool
-    risk_hint: str
+    short_term_memory: list[dict[str, Any]]  # Recent chat history
+    long_term_memory: str                    # Summary or MEMORY.md abstract
+    soul_context: str                        # Loaded from SOUL.md
+    rules_context: str                       # Loaded from RULE.md
+    guardrails_passed: bool
 
-    # ── Context Builder output ────────────────────────────────
-    context: dict[str, Any]
+    # ── Orchestrator (Supervisor) output ──────────────────────
+    plan_steps: Annotated[list[str], operator.add]
+    route_to_reply: bool
+    active_tasks: list[SubTask]
 
-    # ── Policy Agent output ───────────────────────────────────
-    policy_constraints: dict[str, Any]
-    disclosure_boundaries: list[str]
-
-    # ── Orchestrator output ───────────────────────────────────
-    plan_steps: list[str]
-    orchestrator_next_step: str  # "retriever" | "research" | "policy" | "reply"
-    requires_external_research: bool
-    requires_approval: bool
-
-    # ── Retriever output ──────────────────────────────────────
-    retrieved_context: list[dict[str, Any]]
-
-    # ── Research output (optional) ────────────────────────────
-    research_findings: str
+    # ── Sub-Agents output (Fan-in Aggregation) ────────────────
+    completed_tasks: Annotated[list[SubTask], operator.add]
 
     # ── Reply output ──────────────────────────────────────────
     reply_text: str
@@ -64,6 +54,7 @@ class PipelineState(TypedDict, total=False):
     # ── Risk output ───────────────────────────────────────────
     risk_level: str           # "low" | "medium" | "high"
     risk_flags: list[str]
+    requires_approval: bool
 
     # ── Update output ─────────────────────────────────────────
     memory_updates: list[dict[str, Any]]
