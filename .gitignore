@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+.venv/  # Virtual environments are generally ignored
+venv/
+env/
+build/
+dist/
+.Python.
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Agent output and logs
+/logs/
+/output/
+*.log
+
+# Environments
+.venv
+venv
+env
+build/
+dist/
+*.egg-info/
+
+# uv lock file
+uv.lock
+
+# Editor/OS Files
+.idea/  # popular IDE Pycharm project files
+.vscode/ # VS Code project files
+.env # Environment variables file
+.DS_Store # macOS files
