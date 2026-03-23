@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     LLM_API_KEY: str
     LLM_MODEL: str
 
+    # ── External Research ─────────────────────────────────────
+    TAVILY_API_KEY: str
+
     # ── Redis / Cache ─────────────────────────────────────────
     REDIS_URL: str
 
