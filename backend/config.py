@@ -13,8 +13,10 @@ class Settings(BaseSettings):
     """Central configuration — all values must be set in .env file."""
 
     # ── Database ──────────────────────────────────────────────
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    POSTGRES_DB: str
     DATABASE_URL: str
-
     # ── LLM ───────────────────────────────────────────────────
     LLM_API_KEY: str
     LLM_MODEL: str
