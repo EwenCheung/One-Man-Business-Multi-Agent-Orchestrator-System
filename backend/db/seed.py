@@ -4,6 +4,8 @@ import random
 from datetime import date, timedelta
 from decimal import Decimal
 
+from sqlalchemy import Integer, Numeric, Boolean, Date
+
 """
 Generates realistic synthetic data for a one-man physical goods business.
 Produces CSV files in data/seed/ and can load them into PostgreSQL via SQLAlchemy.
@@ -268,5 +270,89 @@ def generate_all():
     print("Seed data generation complete.")
 
 
+def load_all():
+    """Load CSV seed data into the database via SQLAlchemy ORM."""
+    from backend.db.engine import SessionLocal
+    from backend.db import orm_models
+
+    model_map = {
+        "products.csv": orm_models.Product,
+        "customers.csv": orm_models.Customer,
+        "suppliers.csv": orm_models.Supplier,
+        "orders.csv": orm_models.Order,
+        "supply_contracts.csv": orm_models.SupplyContract,
+        "partners.csv": orm_models.Partner,
+        "partner_agreements.csv": orm_models.PartnerAgreement,
+        "partner_products.csv": orm_models.PartnerProduct,
+    }
+
+    # Insertion order respects foreign key constraints
+    load_order = [
+        "products.csv",
+        "customers.csv",
+        "suppliers.csv",
+        "partners.csv",
+        "orders.csv",
+        "supply_contracts.csv",
+        "partner_agreements.csv",
+        "partner_products.csv",
+    ]
+
+    session = SessionLocal()
+    try:
+        for filename in load_order:
+            filepath = os.path.join(SEED_DIR, filename)
+            if not os.path.exists(filepath):
+                print(f"  Skipping {filename} (not found)")
+                continue
+
+            model = model_map[filename]
+            col_types = {c.key: c.type for c in model.__table__.columns}
+            with open(filepath, newline="") as f:
+                reader = csv.DictReader(f)
+                rows = []
+                for row in reader:
+                    cleaned = {}
+                    for k, v in row.items():
+                        if k not in col_types:
+                            continue
+                        if v == "":
+                            cleaned[k] = None
+                            continue
+                        col_type = col_types[k]
+                        if isinstance(col_type, (Integer,)):
+                            cleaned[k] = int(v)
+                        elif isinstance(col_type, (Numeric,)):
+                            cleaned[k] = Decimal(v)
+                        elif isinstance(col_type, (Boolean,)):
+                            cleaned[k] = v.lower() in ("true", "1", "yes")
+                        elif isinstance(col_type, (Date,)):
+                            cleaned[k] = date.fromisoformat(v)
+                        else:
+                            cleaned[k] = v
+                    rows.append(model(**cleaned))
+                session.add_all(rows)
+                session.flush()
+                print(f"  Loaded {len(rows)} rows → {model.__tablename__}")
+
+        session.commit()
+        print("Seed data loaded successfully.")
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
-    generate_all()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seed data generator and loader")
+    parser.add_argument("--generate", action="store_true", help="Generate CSV seed files")
+    parser.add_argument("--load", action="store_true", help="Load CSV seed data into the database")
+    args = parser.parse_args()
+
+    if args.generate:
+        generate_all()
+    if args.load:
+        load_all()
