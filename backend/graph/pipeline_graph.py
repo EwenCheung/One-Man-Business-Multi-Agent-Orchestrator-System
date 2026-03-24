@@ -32,7 +32,7 @@ from backend.nodes.risk import risk_node
 
 # ── Import agents ──────────────────────────────
 from backend.agents.orchestrator_agent import orchestrator_agent
-from backend.agents.retriever_agent import retriever_agent
+from backend.agents.retrieval_agent import retrieval_agent
 from backend.agents.policy_agent import policy_agent
 from backend.agents.research_agent import research_agent
 from backend.agents.memory_agent import memory_agent_node
@@ -85,7 +85,7 @@ def build_graph() -> StateGraph:
     graph.add_node("memory_update", memory_agent_node)
 
     # ── Add Sub-Agent Nodes (mapped via Send) ──────────────────
-    graph.add_node("retriever", retriever_agent)
+    graph.add_node("retriever", retrieval_agent)
     graph.add_node("policy", policy_agent)
     graph.add_node("research", research_agent)
 
