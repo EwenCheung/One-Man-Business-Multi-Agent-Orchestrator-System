@@ -1,3 +1,8 @@
+"""
+Generates realistic synthetic data for a one-man physical goods business.
+Produces CSV files in data/seed/ and can load them into PostgreSQL via SQLAlchemy.
+"""
+
 import csv
 import os
 import random
@@ -5,11 +10,6 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import Integer, Numeric, Boolean, Date
-
-"""
-Generates realistic synthetic data for a one-man physical goods business.
-Produces CSV files in data/seed/ and can load them into PostgreSQL via SQLAlchemy.
-"""
 
 SEED_DIR = os.path.join(os.path.dirname(__file__), "data")
 

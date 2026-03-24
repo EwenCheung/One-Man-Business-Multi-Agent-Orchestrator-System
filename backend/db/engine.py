@@ -1,10 +1,10 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from backend.config import settings
-
 '''
 Sets up SQLalchemy for relational DB
 '''
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from backend.config import settings
 
 # Create SQLalchemy engine and session
 engine = create_engine(settings.DATABASE_URL, echo=False)
