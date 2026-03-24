@@ -11,6 +11,7 @@ dist/
 *$py.class
 *.so
 .pytest_cache/
+data/
 
 # Node.js
 node_modules/

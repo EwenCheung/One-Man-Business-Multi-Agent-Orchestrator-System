@@ -128,6 +128,128 @@ Incoming Message
 ```
 
 ---
+## Database Schema
+
+```
+───────────────────────────────────────────────────────
+CORE TABLES
+───────────────────────────────────────────────────────
+
+customers
+├── id                  PK
+├── name
+├── email
+├── phone
+├── address
+├── platform            (which platform they came from)
+└── created_at
+
+products
+├── id                  PK
+├── name
+├── description
+├── selling_price
+├── cost_price
+├── stock_quantity
+├── category
+├── link                (url to product page)
+├── created_at
+└── updated_at
+
+orders
+├── id                  PK
+├── customer_id         FK → customers
+├── product_id          FK → products
+├── quantity
+├── total_price
+├── order_date
+├── status              (pending / fulfilled / cancelled)
+├── channel
+└── created_at
+
+───────────────────────────────────────────────────────
+SUPPLIER TABLES
+───────────────────────────────────────────────────────
+
+suppliers
+├── id                  PK
+├── name
+├── contact_person
+├── email
+├── phone
+└── created_at
+
+supply_contracts
+├── id                  PK
+├── supplier_id         FK → suppliers
+├── product_id          FK → products
+├── supply_price
+├── total_order_qty
+├── lead_time_days
+├── contract_start
+├── contract_end
+├── is_active
+└── notes
+
+───────────────────────────────────────────────────────
+PARTNER TABLES
+───────────────────────────────────────────────────────
+
+partners
+├── id                  PK
+├── name
+├── contact_person
+├── email
+├── phone
+└── created_at
+
+partner_agreements
+├── id                  PK
+├── partner_id          FK → partners
+├── description
+├── agreement_type      (reseller / affiliate / collab)
+├── revenue_share_pct
+├── start_date
+├── end_date
+├── is_active
+└── notes
+
+partner_products
+├── id                  PK
+├── partner_id          FK → partners
+├── product_id          FK → products
+├── agreement_id        FK → partner_agreements
+└── created_at
+
+───────────────────────────────────────────────────────
+ROLE-BASED ACCESS
+───────────────────────────────────────────────────────
+
+CUSTOMER can access:
+├── customers       → their own profile only
+├── products        → name, description, selling_price, stock_quantity, link, category
+└── orders          → their own orders only
+
+SUPPLIER can access:
+├── products        → name, description, stock_quantity
+├── suppliers       → their own profile only
+└── supply_contracts→ their own contracts only
+
+INVESTOR can access:
+├── products        → full table including cost_price
+├── orders          → full table
+├── customers       → aggregate stats (customer count)
+├── supply_contracts→ full table
+└── metrics         → ROI, daily sales, margins (computed at query time)
+
+PARTNER can access:
+├── products            → name, description, selling_price
+├── partners            → their own profile only
+├── partner_agreements  → their own agreements only
+└── partner_products    → their own product links only
+```
+
+---
 
 ## API Endpoints
 

@@ -17,12 +17,12 @@ class SubTask(TypedDict):
     result: str               # Detailed output from the sub-agent
     priority: str             # "required" | "optional"
     context_needed: list[str] # What specific context to inject (selective injection)
+    sender_role: str           # "customer" | "supplier" | "investor" | "partner"
+    sender_id: str             # ID of the sender (for row-level scoping)
 
 
 class PipelineState(TypedDict, total=False):
-    """
-    Shared state for the LangGraph pipeline.
-    """
+    """Shared state for the LangGraph pipeline."""
 
     # ── Input (set at the start) ──────────────────────────────
     raw_message: str

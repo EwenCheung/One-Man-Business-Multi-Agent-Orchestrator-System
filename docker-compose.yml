@@ -1,0 +1,16 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: multi-agent-orchestrator
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-business_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-business_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-business_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
