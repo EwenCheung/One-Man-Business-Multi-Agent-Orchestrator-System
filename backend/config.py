@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # ── LLM ───────────────────────────────────────────────────
-    LLM_API_KEY: str
+    OPENAI_API_KEY: str
     LLM_MODEL: str
 
     # ── Redis / Cache ─────────────────────────────────────────
@@ -25,11 +25,14 @@ class Settings(BaseSettings):
     # ── Application ───────────────────────────────────────────
     LOG_LEVEL: str
     APP_ENV: str
+    MAX_REPLAN_CYCLES: int = 2
+    MAX_PARALLEL_TASKS: int = 4
 
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
+        "extra": "ignore"
     }
 
 

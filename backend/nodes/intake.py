@@ -1,9 +1,24 @@
 """
-Intake Agent (Node)
+Intake Agent (Node) — PROPOSAL §3, Flow Step 1
 
 Replaces the linear Receiver, Triage, and Context Builder nodes.
 Fetches identity, loads static docs (SOUL.md, RULE.md, MEMORY.md),
 evaluates early guardrails, and sets the sender role.
+
+## TODO
+- [ ] LLM-based triage: classify intent_label and urgency_level from raw_message
+- [ ] DB lookup: fetch sender profile by sender_id to determine real sender_role
+- [ ] Guardrail checks: detect spam, abuse, or out-of-scope messages before pipeline
+- [ ] Load short-term memory from DB (recent messages in same thread)
+- [ ] Load long-term memory from DB (durable memory for this sender)
+- [ ] Add try/except — intake failure should return a safe fallback state
+
+Functions needed:
+- _classify_intent(raw_message) -> (intent_label, urgency_level)
+- _lookup_sender(sender_id) -> sender_role
+- _check_guardrails(raw_message) -> bool
+- _load_short_term_memory(thread_id) -> list[dict]
+- _load_long_term_memory(sender_id) -> str
 """
 
 import os
