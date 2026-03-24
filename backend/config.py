@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     LLM_API_KEY: str
     LLM_MODEL: str
 
+    # ── Retrieval Agent LLM  ──────────────────────────────────
+    RETRIEVAL_LLM_API_KEY: str
+    RETRIEVAL_LLM_MODEL: str
+
     # ── Redis / Cache ─────────────────────────────────────────
     REDIS_URL: str
 
