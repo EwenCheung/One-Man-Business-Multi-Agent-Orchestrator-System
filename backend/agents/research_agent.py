@@ -9,6 +9,7 @@ the Orchestrator and returns its result as a completed task.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from langchain_core.prompts import PromptTemplate
@@ -19,6 +20,19 @@ from backend.config import settings
 from backend.graph.state import SubTask
 
 logger = logging.getLogger(__name__)
+
+
+def _load_skill_file(filename: str) -> str:
+    """Load a markdown skill file from the backend/agents directory."""
+    path = os.path.join(os.path.dirname(__file__), filename)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return f"(Missing {filename})"
+
+
+_RESEARCH_SKILL = _load_skill_file("RESEARCH_SKILL.md")
 
 
 _MAX_SEARCH_RESULTS = 3  # Number of Tavily results to fetch per query
@@ -73,45 +87,43 @@ _QUERY_EXTRACTION_TEMPLATE = """\
 You are a search query specialist working inside a business AI system.
 Your job is to convert a research task description into tight, effective web search queries.
 
-### Task assigned by the Orchestrator
+══════════════════════════════════════════════════════════════════
+RESEARCH SKILL — Methodology & Constraints
+══════════════════════════════════════════════════════════════════
+{skill_context}
+
+══════════════════════════════════════════════════════════════════
+TASK
+══════════════════════════════════════════════════════════════════
+Convert the following task description into up to {max_queries} focused search queries.
+
 {task_description}
-
-### Rules
-1. Produce up to {max_queries} queries. Each must cover a DIFFERENT angle — do not paraphrase the same question twice.
-2. Keep each query to 3-7 words. Keyword-style queries outperform conversational ones.
-3. Prefer authoritative source types: industry reports, news outlets, company press releases, analyst data.
-4. Do NOT include internal company terms, pricing margins, or contract details — those are handled by the internal retriever.
-
-### Examples of good vs bad queries
-BAD : "what is the current market trend for wireless earbuds in 2025"
-GOOD: "TWS earbuds market growth 2025"
-
-BAD : "can you tell me how competitor X compares to our product"
-GOOD: "Competitor X smart hub specs 2025"
 """
 
 _SYNTHESIS_TEMPLATE = """\
 You are synthesising web search results for a business AI system.
 The findings you produce will be read by a Reply Agent drafting a message to a {sender_role}.
 
-### Research task
+══════════════════════════════════════════════════════════════════
+RESEARCH SKILL — Methodology & Constraints
+══════════════════════════════════════════════════════════════════
+{skill_context}
+
+══════════════════════════════════════════════════════════════════
+RESEARCH TASK
+══════════════════════════════════════════════════════════════════
 {task_description}
 
-### Raw search results
+══════════════════════════════════════════════════════════════════
+RAW SEARCH RESULTS
+══════════════════════════════════════════════════════════════════
 {raw_results}
 
-### Instructions
-1. Extract only facts directly relevant to the task and useful for a {sender_role} context.
-   Discard advertisements, off-topic content, and duplicates information.
-2. Each entry in key_findings must be a single, concrete, attributable fact.
-   Do not combine multiple facts into one bullet.
-3. List every source URL or publication name that supports a finding.
-4. Assign a confidence level using these rules exactly:
-   - high   : two or more independent sources corroborate the same fact.
-   - medium : one clear, credible source supports the finding.
-   - low    : results are indirect, outdated, or no relevant results were found.
-5. If sources contradict each other, include BOTH facts in key_findings and note the conflict in caveat.
-6. If no relevant results were found, set confidence to "low", leave key_findings empty, and explain in caveat.
+══════════════════════════════════════════════════════════════════
+TASK
+══════════════════════════════════════════════════════════════════
+Apply the Research Skill methodology above to synthesise the raw results into
+structured findings for a {sender_role} context.
 """
 
 
@@ -140,6 +152,7 @@ def _extract_queries(task_description: str, llm: ChatOpenAI) -> list[str]:
     formatted = prompt.format(
         task_description=task_description,
         max_queries=_MAX_QUERIES,
+        skill_context=_RESEARCH_SKILL,
     )
     try:
         result = query_llm.invoke(formatted)
@@ -249,6 +262,7 @@ def _synthesise(
         task_description=task_description,
         raw_results=raw_results,
         sender_role=sender_role,
+        skill_context=_RESEARCH_SKILL,
     )
     try:
         summary = synthesis_llm.invoke(formatted)
