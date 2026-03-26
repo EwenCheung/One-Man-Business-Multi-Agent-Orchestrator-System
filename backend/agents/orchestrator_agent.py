@@ -10,10 +10,10 @@ import os
 from typing import Literal, List
 from pydantic import BaseModel, Field
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 
 from backend.config import settings
+from backend.utils.llm_provider import get_chat_llm
 
 # ── SCHEMAS ────────────────────────────────────────────────────
 class TaskDef(BaseModel):
@@ -148,11 +148,7 @@ def orchestrator_agent(state: dict) -> dict:
     prompt = PromptTemplate.from_template(system_prompt_template)
     formatted_prompt = prompt.format(**prompt_kwargs)
 
-    llm = ChatOpenAI(
-        api_key=settings.OPENAI_API_KEY, 
-        model=settings.LLM_MODEL, 
-        temperature=0.0
-    )
+    llm = get_chat_llm(scope="default", temperature=0.0)
     router_llm = llm.with_structured_output(OrchestratorDecision)
     decision: OrchestratorDecision = router_llm.invoke(formatted_prompt)
 
