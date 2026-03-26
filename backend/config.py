@@ -13,26 +13,42 @@ class Settings(BaseSettings):
     """Central configuration — all values must be set in .env file."""
 
     # ── Database ──────────────────────────────────────────────
-    DATABASE_URL: str
-
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_DB: str = "postgres"
+    DATABASE_URL: str = "sqlite:///backend/db/local.db"
+    
     # ── LLM ───────────────────────────────────────────────────
-    LLM_API_KEY: str
-    LLM_MODEL: str
+    AI_PROVIDER: str = "auto"  # auto | openai | gemini
+    OPENAI_API_KEY: str = "dummy-key"
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    GOOGLE_API_KEY: str = "dummy-key"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    LLM_API_KEY: str = ""  # Legacy override key (optional)
+    LLM_MODEL: str = ""  # Legacy override model (optional)
+
+    # ── Retrieval Agent LLM  ──────────────────────────────────
+    RETRIEVAL_LLM_PROVIDER: str = ""
+    RETRIEVAL_LLM_API_KEY: str = ""
+    RETRIEVAL_LLM_MODEL: str = ""
 
     # ── External Research ─────────────────────────────────────
     TAVILY_API_KEY: str
 
     # ── Redis / Cache ─────────────────────────────────────────
-    REDIS_URL: str
+    REDIS_URL: str = "redis://localhost:6379"
 
     # ── Application ───────────────────────────────────────────
-    LOG_LEVEL: str
-    APP_ENV: str
+    LOG_LEVEL: str = "INFO"
+    APP_ENV: str = "development"
+    MAX_REPLAN_CYCLES: int = 2
+    MAX_PARALLEL_TASKS: int = 4
 
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
+        "extra": "ignore"
     }
 
 

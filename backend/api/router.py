@@ -18,14 +18,28 @@ api_router = APIRouter(tags=["orchestrator"])
 @api_router.post("/messages/incoming", response_model=PipelineResult)
 async def receive_message(incoming: IncomingMessage):
     """Accept an incoming message and run the full pipeline."""
-    # TODO: Call pipeline graph
-    # from backend.graph.pipeline_graph import pipeline
-    # result = pipeline.invoke({
-    #     "raw_message": incoming.raw_message,
-    #     "sender_id": incoming.sender_id,
-    #     #...
-    # })
-    return PipelineResult(status="stub — pipeline not yet wired")
+    # Execute the LangGraph Pipeline
+    from backend.graph.pipeline_graph import pipeline
+    from langchain_core.runnables import RunnableConfig
+
+    # Run the pipeline with the incoming payload
+    # Note: pipeline expects a PipelineState mapping
+    initial_state = {
+        "raw_message": incoming.raw_message,
+        "sender_id": incoming.sender_id,
+        "sender_name": incoming.sender_name or "Unknown"
+    }
+
+    result = pipeline.invoke(initial_state)
+
+    # Extract final output
+    return PipelineResult(
+        reply_text=result.get("reply_text", "No reply generated."),
+        risk_level=result.get("risk_level", "low"),
+        requires_approval=result.get("requires_approval", False),
+        status="completed",
+        trace={"orchestrator_warnings": result.get("orchestrator_warnings", [])}
+    )
 
 
 @api_router.get("/messages/{thread_id}")

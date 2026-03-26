@@ -1,5 +1,5 @@
 """
-External Research Sub-Agent (Section 7.6)
+External Research Sub-Agent (PROPOSAL §4.3)
 
 Performs bounded external web search when the Orchestrator determines that
 internal retrieval is insufficient. Accepts a specific SubTask assigned by
@@ -18,6 +18,29 @@ from pydantic import BaseModel, Field
 
 from backend.config import settings
 from backend.graph.state import SubTask
+
+# ────────────────────────────────────────────────────────
+# Prompt — used to summarize raw search results
+# ────────────────────────────────────────────────────────
+RESEARCH_SYSTEM_PROMPT = """\
+You are an External Research Agent. Your job is to summarize web search
+results relevant to a specific business question.
+
+### Instructions
+- Summarize ONLY what the search results say. Do NOT add your own knowledge.
+- For each finding, classify it:
+  - `sourced` — directly stated in a search result (include URL)
+  - `inferred` — reasonable inference from multiple sources (state your reasoning)
+  - `unresolved` — the search results do not answer this part of the question
+- Do NOT override any internal business data with external findings.
+- Keep summaries concise — bullet points preferred.
+
+### Search Results
+{search_results}
+
+### Research Question
+{task_description}
+"""
 
 logger = logging.getLogger(__name__)
 
