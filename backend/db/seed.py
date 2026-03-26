@@ -273,17 +273,17 @@ def generate_all():
 def load_all():
     """Load CSV seed data into the database via SQLAlchemy ORM."""
     from backend.db.engine import SessionLocal
-    from backend.db import orm_models
+    from backend.db import models
 
     model_map = {
-        "products.csv": orm_models.Product,
-        "customers.csv": orm_models.Customer,
-        "suppliers.csv": orm_models.Supplier,
-        "orders.csv": orm_models.Order,
-        "supply_contracts.csv": orm_models.SupplyContract,
-        "partners.csv": orm_models.Partner,
-        "partner_agreements.csv": orm_models.PartnerAgreement,
-        "partner_products.csv": orm_models.PartnerProduct,
+        "products.csv": models.Product,
+        "customers.csv": models.Customer,
+        "suppliers.csv": models.Supplier,
+        "orders.csv": models.Order,
+        "supply_contracts.csv": models.SupplyContract,
+        "partners.csv": models.Partner,
+        "partner_agreements.csv": models.PartnerAgreement,
+        "partner_products.csv": models.PartnerProduct,
     }
 
     # Insertion order respects foreign key constraints
@@ -307,6 +307,11 @@ def load_all():
                 continue
 
             model = model_map[filename]
+            # Make startup idempotent: skip reseeding tables that already have data.
+            if session.query(model).first() is not None:
+                print(f"  Skipping {model.__tablename__} (already has data)")
+                continue
+
             col_types = {c.key: c.type for c in model.__table__.columns}
             with open(filepath, newline="") as f:
                 reader = csv.DictReader(f)

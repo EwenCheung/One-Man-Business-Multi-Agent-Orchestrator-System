@@ -38,6 +38,8 @@ from backend.agents.research_agent import research_agent
 from backend.agents.memory_agent import memory_agent_node
 from backend.agents.reply_agent import reply_agent
 
+from backend.utils.error_handler import safe_agent_call
+
 
 def continue_from_orchestrator(state: PipelineState):
     """
@@ -53,6 +55,16 @@ def continue_from_orchestrator(state: PipelineState):
 
     # Fan-out: Map each task to its assigned sub-agent Node
     for task in tasks:
+        # ── Selective Context Injection ──
+        # Extract requested variables from the global state
+        injected = {}
+        for key in task.get("context_needed", []):
+            if key in state:
+                injected[key] = state[key]
+        
+        # Attach strictly to the designated isolation boundary
+        task["injected_context"] = injected
+        
         assignee = task.get("assignee")
         if assignee == "retriever":
             sends.append(Send("retriever", task))
@@ -81,13 +93,13 @@ def build_graph() -> StateGraph:
     graph.add_node("risk", risk_node)
     
     # ── Add memory nodes (dual purpose) ────────────────────────
-    graph.add_node("memory_read", memory_agent_node)
+    graph.add_node("memory_read", safe_agent_call(memory_agent_node))
     graph.add_node("memory_update", memory_agent_node)
 
     # ── Add Sub-Agent Nodes (mapped via Send) ──────────────────
-    graph.add_node("retriever", retrieval_agent)
-    graph.add_node("policy", policy_agent)
-    graph.add_node("research", research_agent)
+    graph.add_node("retriever", safe_agent_call(retrieval_agent))
+    graph.add_node("policy", safe_agent_call(policy_agent))
+    graph.add_node("research", safe_agent_call(research_agent))
 
     # ── Define Edge Flow ───────────────────────────────────────
     graph.set_entry_point("intake")
