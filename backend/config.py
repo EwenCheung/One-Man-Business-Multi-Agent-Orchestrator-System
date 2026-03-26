@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     RETRIEVAL_LLM_API_KEY: str = ""
     RETRIEVAL_LLM_MODEL: str = ""
 
+    # ── External Research ─────────────────────────────────────
+    TAVILY_API_KEY: str
+
     # ── Redis / Cache ─────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379"
 
