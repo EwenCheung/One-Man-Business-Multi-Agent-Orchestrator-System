@@ -20,41 +20,84 @@ A **role-aware multi-agent auto-reply system** using **LangChain + LangGraph**. 
 
 ## Getting Started
 
-### Prerequisites
+There are two officially supported ways to run this project:
+**1. Use Docker (Recommended) 🐳**
+**2. Local Execution (uv + uvicorn)**
 
+### Option 1: Docker (Recommended)
+
+Running via Docker avoids local dependency mismatch issues.
+
+**Prerequisites:**
+- Docker & Docker Compose
+- Configure `.env` (copy from `.env.example`)
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+What starts:
+- PostgreSQL (`db`) on `localhost:5432`
+- Backend API on `localhost:8000`
+- Frontend on `localhost:3000`
+
+Database initialization and seeding in Docker:
+- On backend container startup, it automatically runs:
+  - `backend/db/init_db.py`
+  - `backend/db/seed.py --generate --load`
+- Seeding is idempotent (if table already has data, it skips re-insert).
+
+Useful commands:
+```bash
+# View logs
+docker compose logs -f backend frontend db
+
+# Re-run seed manually (inside backend container)
+docker compose exec backend uv run python backend/db/seed.py --generate --load
+```
+
+---
+
+### Option 2: Local Execution (uv)
+
+**Prerequisites:**
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-### Setup
-
+**Setup:**
 ```bash
 # Clone
 git clone https://github.com/EwenCheung/One-Man-Business-Multi-Agent-Orchestrator-System.git
 cd One-Man-Business-Multi-Agent-Orchestrator-System
 
-# Install dependencies
+# Install dependencies (greenlet, asyncpg etc.)
 uv sync
-
-# Install dev dependencies (pytest, ruff)
-uv sync --extra dev
 
 # Set up env vars
 cp .env.example .env
-# Edit .env with your values
 ```
 
-### Run
-
+**Run locally:**
 ```bash
-# Start backend
-uv run uvicorn backend.main:app --reload
+# 1. Initialize DB tables
+uv run python backend/db/init_db.py
 
-# Run tests
-uv run pytest tests/ -v
+# 2. Generate + load seed data
+uv run python backend/db/seed.py --generate --load
+
+# 3. Start Backend
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
+> The API will be available at http://localhost:8000
 
-- **Swagger UI**: http://localhost:8000/docs
-- **Health check**: http://localhost:8000/health
+Optional frontend (local):
+```bash
+cd frontend
+npm install
+npm run dev
+```
+> Frontend available at http://localhost:3000
 
 ---
 
