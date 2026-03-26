@@ -24,11 +24,10 @@ from __future__ import annotations
 import logging
 
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from backend.config import settings
 from backend.graph.state import PipelineState, SubTask
+from backend.utils.llm_provider import get_chat_llm
 
 logger = logging.getLogger(__name__)
 
@@ -101,22 +100,21 @@ SOUL — Your Identity & Voice
 ══════════════════════════════════════════════════════════════════
 {soul_context}
 
-Voice & Tone Guidelines:
-- Use active voice.
-- Be polite but do not apologise excessively unless a clear failure occurred on our end.
-- When you do not know the answer, do not guess. State that you will verify the information or request that the sender wait while you fetch it.
-- You are representing a human founder. Do not introduce yourself as an AI unless explicitly required by compliance.
-
 ══════════════════════════════════════════════════════════════════
 RULE — Hard Constraints (NEVER violate these)
 ══════════════════════════════════════════════════════════════════
 {rules_context}
 
 ══════════════════════════════════════════════════════════════════
-ROLE-SPECIFIC TONE
+VOICE & TONE
 ══════════════════════════════════════════════════════════════════
-The sender is a {sender_role}. Apply this tone precisely:
+Universal (apply to every reply regardless of role):
+- Use active voice. Be direct and concise.
+- Be polite but do not apologise excessively unless a clear failure occurred on our end.
+- When you do not know the answer, do not guess. Commit to verifying and following up.
+- You are representing a human founder. Do not introduce yourself as an AI unless explicitly required by compliance.
 
+The relationship of the sender to the owner is {sender_role}. Layer this posture on top of the universal guidelines:
 {tone_instructions}
 
 ══════════════════════════════════════════════════════════════════
@@ -270,11 +268,7 @@ def reply_agent(state: PipelineState) -> dict:
         completed_tasks_text=_format_completed_tasks(completed_tasks),
     )
 
-    llm = ChatOpenAI(
-        api_key=settings.LLM_API_KEY,
-        model=settings.LLM_MODEL,
-        temperature=0.3,
-    )
+    llm = get_chat_llm(temperature=0.3)
     reply_llm = llm.with_structured_output(ReplyOutput)
 
     try:
