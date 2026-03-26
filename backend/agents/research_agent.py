@@ -9,19 +9,19 @@ the Orchestrator and returns its result as a completed task.
 from __future__ import annotations
 
 import logging
-import os
+from pathlib import Path
 from typing import Optional
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from backend.agents.tools.skills import SkillsLoader
 from backend.config import settings
+from backend.utils.llm_provider import get_chat_llm
 from backend.graph.state import SubTask
 
-# ────────────────────────────────────────────────────────
-# Prompt — used to summarize raw search results
-# ────────────────────────────────────────────────────────
+
 RESEARCH_SYSTEM_PROMPT = """\
 You are an External Research Agent. Your job is to summarize web search
 results relevant to a specific business question.
@@ -44,27 +44,30 @@ results relevant to a specific business question.
 
 logger = logging.getLogger(__name__)
 
+_skills_loader = SkillsLoader(workspace=Path(__file__).parent)
 
-def _load_skill_file(filename: str) -> str:
-    """Load a markdown skill file from the backend/agents directory."""
-    path = os.path.join(os.path.dirname(__file__), filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return f"(Missing {filename})"
+# Composed skill contexts injected per prompt
+_QUERY_SKILL_CONTEXT = _skills_loader.load_skills_for_context([
+    "query-formulation",
+    "scope-boundaries",
+    "stakeholder-framing",
+])
 
-
-_RESEARCH_SKILL = _load_skill_file("RESEARCH_SKILL.md")
+_SYNTHESIS_SKILL_CONTEXT = _skills_loader.load_skills_for_context([
+    "source-evaluation",
+    "synthesis",
+    "confidence-calibration",
+    "scope-boundaries",
+    "stakeholder-framing",
+    "market-pricing-research",
+    "competitor-intelligence",
+    "regulatory-compliance-research",
+])
 
 
 _MAX_SEARCH_RESULTS = 3  # Number of Tavily results to fetch per query
 _MAX_QUERIES = 2         # Maximum distinct queries to run against Tavily for one task
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Structured output schemas
-# ─────────────────────────────────────────────────────────────────────────────
 
 class SearchQueries(BaseModel):
     """Tight search queries extracted from the Orchestrator's task description.
@@ -150,7 +153,7 @@ structured findings for a {sender_role} context.
 """
 
 
-def _extract_queries(task_description: str, llm: ChatOpenAI) -> list[str]:
+def _extract_queries(task_description: str, llm: BaseChatModel) -> list[str]:
     """Convert a verbose Orchestrator task description into focused search queries.
 
     Uses a single ``with_structured_output`` LLM call — cheaper and faster than
@@ -164,7 +167,7 @@ def _extract_queries(task_description: str, llm: ChatOpenAI) -> list[str]:
         task_description: The raw task description string assigned by the
             Orchestrator (e.g. "Search the web for Competitor X's latest
             product release and summarise key specs.").
-        llm: A ``ChatOpenAI`` instance used to perform the extraction.
+        llm: A chat LLM instance used to perform the extraction.
 
     Returns:
         A list of 1–``_MAX_QUERIES`` concise search query strings, ordered
@@ -175,7 +178,7 @@ def _extract_queries(task_description: str, llm: ChatOpenAI) -> list[str]:
     formatted = prompt.format(
         task_description=task_description,
         max_queries=_MAX_QUERIES,
-        skill_context=_RESEARCH_SKILL,
+        skill_context=_QUERY_SKILL_CONTEXT,
     )
     try:
         result = query_llm.invoke(formatted)
@@ -248,7 +251,7 @@ def _run_tavily_search(queries: list[str]) -> str:
 def _synthesise(
     task_description: str,
     raw_results: str,
-    llm: ChatOpenAI,
+    llm: BaseChatModel,
     sender_role: str = "unknown",
 ) -> ResearchSummary:
     """Distil raw Tavily results into a structured ``ResearchSummary``.
@@ -269,7 +272,7 @@ def _synthesise(
             in the prompt so the LLM can filter results by relevance.
         raw_results: Concatenated Tavily result snippets produced by
             ``_run_tavily_search``.
-        llm: A ``ChatOpenAI`` instance used to perform the synthesis.
+        llm: A chat LLM instance used to perform the synthesis.
         sender_role: The stakeholder type from ``PipelineState.sender_role``
             (e.g. ``"investor"``, ``"supplier"``). Defaults to ``"unknown"``.
             Used to focus synthesis on findings relevant to the reply context.
@@ -285,7 +288,7 @@ def _synthesise(
         task_description=task_description,
         raw_results=raw_results,
         sender_role=sender_role,
-        skill_context=_RESEARCH_SKILL,
+        skill_context=_SYNTHESIS_SKILL_CONTEXT,
     )
     try:
         summary = synthesis_llm.invoke(formatted)
@@ -374,11 +377,7 @@ def research_agent(task: SubTask, sender_role: str = "unknown") -> dict:
     task_description = task["description"]
     logger.info("ResearchAgent: starting task '%s' — %s", task["task_id"], task_description)
 
-    llm = ChatOpenAI(
-        api_key=settings.LLM_API_KEY,
-        model=settings.LLM_MODEL,
-        temperature=0.0,
-    )
+    llm = get_chat_llm(temperature=0.0)
 
     # 1. Extract focused search queries from the task description
     queries = _extract_queries(task_description, llm)
