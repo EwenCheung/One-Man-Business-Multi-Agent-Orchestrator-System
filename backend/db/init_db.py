@@ -1,5 +1,5 @@
 from backend.db.engine import engine, Base
-from backend.db import orm_models
+from backend.db import models
 
 def init():
     print("Creating tables...")
