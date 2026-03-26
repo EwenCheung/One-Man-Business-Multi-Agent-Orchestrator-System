@@ -87,11 +87,11 @@ import logging
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from backend.config import settings
 from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
 from backend.tools.role_permissions import get_tools_for_role
 from backend.tools import retrieval_tools as rt
+from backend.utils.llm_provider import get_chat_llm
 
 
 # ─── Wrap query functions as LangChain tools ─────────────────
@@ -282,23 +282,7 @@ def _get_llm():
 
     Uses RETRIEVAL_LLM configs if set, otherwise falls back to default LLM config.
     """
-    model = settings.RETRIEVAL_LLM_MODEL or settings.LLM_MODEL
-    api_key = settings.RETRIEVAL_LLM_API_KEY or settings.LLM_API_KEY
-
-    if "gemini" in model.lower():
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
-            model=model,
-            google_api_key=api_key,
-            temperature=0,
-        )
-    else:
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=model,
-            api_key=api_key,
-            temperature=0,
-        )
+    return get_chat_llm(scope="retrieval", temperature=0.0)
 
 
 def retrieval_agent(task: SubTask) -> dict:
@@ -314,8 +298,10 @@ def retrieval_agent(task: SubTask) -> dict:
     Input state: SubTask
     Returns: dict with 'completed_tasks' list to merge back to main state.
     """
-    role = task.get("sender_role", "")
-    sender_id = task.get("sender_id", "")
+    # 1. Read scope from injected context (Harness rules!)
+    ctx = task.get("injected_context", {})
+    role = ctx.get("sender_role", "")
+    sender_id = ctx.get("sender_id", "")
     description = task.get("description", "")
 
     completed_task = dict(task)

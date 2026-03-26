@@ -16,9 +16,8 @@ class SubTask(TypedDict):
     status: str               # "pending" | "completed" | "failed"
     result: str               # Detailed output from the sub-agent
     priority: str             # "required" | "optional"
-    context_needed: list[str] # What specific context to inject (selective injection)
-    sender_role: str           # "customer" | "supplier" | "investor" | "partner"
-    sender_id: str             # ID of the sender (for row-level scoping)
+    context_needed: list[str] # What specific global context keys the Orchestrator requested
+    injected_context: dict[str, Any] # The actual quarantine payload populated by the router
 
 
 class PipelineState(TypedDict, total=False):
