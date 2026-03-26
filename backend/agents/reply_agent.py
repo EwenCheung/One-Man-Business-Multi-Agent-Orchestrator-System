@@ -1,8 +1,22 @@
 """
-Reply Agent (Section 7.7)
+Reply Agent (PROPOSAL §4.6)
 
-Drafts the final candidate response using the completed tasks
-and role-appropriate tone constraints.
+Drafts the final candidate response using completed task results
+and role-appropriate tone constraints from SOUL.md and RULE.md.
+
+## TODO
+- [ ] Build LLM prompt that injects: SOUL.md (tone), RULE.md (constraints), completed task results
+- [ ] Apply role-specific tone rules:
+      - Customer:  polite, professional, helpful, retention-focused
+      - Supplier:  direct, firm, negotiate, maximize profit
+      - Investor:  promote, optimistic, ROI-focused
+      - Partner:   professional, mutual-benefit, strategic
+      - Employee:  motivate, clear expectations, constructive
+      - Government: compliant, exact, formal
+- [ ] Use structured output: reply_text + confidence_note
+- [ ] Surface uncertainty safely — do NOT hide gaps in knowledge
+- [ ] Enforce: use ONLY facts from completed_tasks, never invent
+- [ ] Add try/except with structured failure return
 """
 
 from __future__ import annotations
