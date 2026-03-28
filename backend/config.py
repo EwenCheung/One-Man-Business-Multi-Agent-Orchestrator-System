@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     RETRIEVAL_LLM_API_KEY: str = ""
     RETRIEVAL_LLM_MODEL: str = ""
 
+    # ── Policy Agent LLM ──────────────────────────────────────
+    POLICY_LLM_PROVIDER: str = ""
+    POLICY_LLM_API_KEY: str = ""
+    POLICY_LLM_MODEL: str = ""
+
+    # ── Policy Agent RAG ──────────────────────────────────────
+    EMBEDDING_MODEL: str = "text-embedding-3-small"  # 1536 dims — matches Vector(1536)
+    POLICY_CHUNK_SIZE: int = 2000    # characters per chunk (~500 tokens)
+    POLICY_CHUNK_OVERLAP: int = 200  # overlap between consecutive chunks
+    POLICY_TOP_K: int = 5            # chunks retrieved from pgvector before reranking
+    POLICY_TOP_N: int = 3            # chunks passed to LLM after reranking
+
     # ── External Research ─────────────────────────────────────
     TAVILY_API_KEY: str
 
