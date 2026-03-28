@@ -23,12 +23,12 @@ from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.db.engine import SessionLocal
-from backend.policies.generate_policies import POLICY_SPECS
+from backend.db.policy_metadata import POLICY_SPECS
 from backend.db.models import PolicyChunk
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-POLICIES_DIR = Path(__file__).parent.parent / "policies"
+POLICIES_DIR = Path(__file__).parent.parent / "data" / "policies"
 
 # filename → {category, hard_constraint} — sourced from the generator spec list
 _SPEC_BY_FILE: dict[str, dict] = {s["filename"]: s for s in POLICY_SPECS}
