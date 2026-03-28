@@ -21,10 +21,11 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from backend.config import settings
+from backend.db.policy_metadata import POLICY_SPECS as _BASE_SPECS
 
 # ─── Output directory ────────────────────────────────────────────────────────
 
-POLICIES_DIR = Path(__file__) / "policies"
+POLICIES_DIR = Path(__file__).parent / "policies"
 
 # ─── Few-shot examples ───────────────────────────────────────────────────────
 
@@ -130,11 +131,9 @@ FEW_SHOT_EXAMPLES: list[dict] = [
 #   system_prompt   — sets the LLM's persona and formatting rules
 #   user_prompt     — the actual instruction for this specific document
 
-POLICY_SPECS: list[dict] = [
-    {
-        "filename": "returns_policy.pdf",
-        "category": "returns",
-        "hard_constraint": True,
+# Prompt-only specs — keyed by filename, merged with metadata from policy_metadata.py
+_PROMPTS: dict[str, dict] = {
+    "returns_policy.pdf": {
         "system_prompt": (
             "You are a legal and operations writer for a small e-commerce business. "
             "Write formal, precise policy documents that are enforceable and easy for "
@@ -159,14 +158,11 @@ POLICY_SPECS: list[dict] = [
             "Write approximately 500 words. Use formal language."
         ),
     },
-    {
-        "filename": "pricing_policy.pdf",
-        "category": "pricing",
-        "hard_constraint": True,
+    "pricing_policy.pdf": {
         "system_prompt": (
             "You are a pricing and commercial policy writer for a small business. "
             "Write authoritative policy documents that set clear rules for pricing, "
-            "discounts, and payment terms. Use section headings. Write in full paragraphs."
+            "discounts, and payment terms. Use clear section headings. Do not use bullet points — write in full paragraphs."
         ),
         "user_prompt": (
             "Write a Pricing and Discount Policy for a one-man e-commerce business. "
@@ -188,15 +184,12 @@ POLICY_SPECS: list[dict] = [
             "Write approximately 500 words. Use formal language."
         ),
     },
-    {
-        "filename": "data_privacy_policy.pdf",
-        "category": "data_privacy",
-        "hard_constraint": True,
+    "data_privacy_policy.pdf": {
         "system_prompt": (
             "You are a data protection and privacy policy writer. "
             "Write GDPR-aligned privacy policies for small businesses. "
             "Be precise about data categories, legal bases, and individual rights. "
-            "Use section headings. Write in full paragraphs."
+            "Use clear section headings. Do not use bullet points — write in full paragraphs."
         ),
         "user_prompt": (
             "Write a Data Privacy Policy for a one-man e-commerce business operating in the EU/UK. "
@@ -219,14 +212,11 @@ POLICY_SPECS: list[dict] = [
             "Write approximately 550 words. Use formal language."
         ),
     },
-    {
-        "filename": "supplier_terms.pdf",
-        "category": "supplier",
-        "hard_constraint": False,
+    "supplier_terms.pdf": {
         "system_prompt": (
             "You are a procurement and supplier relations policy writer for a small business. "
             "Write clear supplier engagement policies that protect the business while "
-            "maintaining fair supplier relationships. Use section headings. Write in full paragraphs."
+            "maintaining fair supplier relationships. Use clear section headings. Do not use bullet points — write in full paragraphs."
         ),
         "user_prompt": (
             "Write a Supplier Engagement Policy for a one-man e-commerce business. "
@@ -248,14 +238,11 @@ POLICY_SPECS: list[dict] = [
             "Write approximately 500 words. Use formal language."
         ),
     },
-    {
-        "filename": "partner_agreement_policy.pdf",
-        "category": "partner",
-        "hard_constraint": False,
+    "partner_agreement_policy.pdf": {
         "system_prompt": (
             "You are a commercial partnerships and agreements policy writer for a small business. "
             "Write clear partner relationship policies covering revenue sharing, IP, and conduct. "
-            "Use section headings. Write in full paragraphs."
+            "Use clear section headings. Do not use bullet points — write in full paragraphs."
         ),
         "user_prompt": (
             "Write a Partner Agreement Policy for a one-man e-commerce business that works with "
@@ -279,6 +266,12 @@ POLICY_SPECS: list[dict] = [
             "Write approximately 500 words. Use formal language."
         ),
     },
+}
+
+# Merge metadata (filename, category, hard_constraint) with generation prompts
+POLICY_SPECS: list[dict] = [
+    {**base, **_PROMPTS[base["filename"]]}
+    for base in _BASE_SPECS
 ]
 
 
