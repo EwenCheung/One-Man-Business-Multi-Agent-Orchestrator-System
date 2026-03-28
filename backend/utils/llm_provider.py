@@ -55,7 +55,8 @@ def get_chat_llm(scope: str = "default", temperature: float = 0.0):
 
     scope:
       - default: used by orchestrator/intake/etc
-      - retrieval: used by retrieval agent (can override provider/model/key)
+      - retrieval:  retrieval agent (reads RETRIEVAL_LLM_* settings)
+      - policy:     policy agent (reads POLICY_LLM_* settings)
     """
     if scope == "retrieval":
         provider = settings.RETRIEVAL_LLM_PROVIDER or settings.AI_PROVIDER
@@ -66,6 +67,15 @@ def get_chat_llm(scope: str = "default", temperature: float = 0.0):
             or settings.GEMINI_MODEL
         )
         api_key = settings.RETRIEVAL_LLM_API_KEY or settings.LLM_API_KEY
+    elif scope == "policy":
+        provider = settings.POLICY_LLM_PROVIDER or settings.AI_PROVIDER
+        model = (
+            settings.POLICY_LLM_MODEL
+            or settings.LLM_MODEL
+            or settings.OPENAI_MODEL
+            or settings.GEMINI_MODEL
+        )
+        api_key = settings.POLICY_LLM_API_KEY or settings.LLM_API_KEY
     else:
         provider = settings.AI_PROVIDER
         model = settings.LLM_MODEL or settings.OPENAI_MODEL or settings.GEMINI_MODEL
