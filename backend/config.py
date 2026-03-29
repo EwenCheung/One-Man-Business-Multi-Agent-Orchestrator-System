@@ -8,6 +8,9 @@ Usage:
 
 from pydantic_settings import BaseSettings
 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Settings(BaseSettings):
     """Central configuration — all values must be set in .env file."""
@@ -17,7 +20,8 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "postgres"
     DATABASE_URL: str = "sqlite:///backend/db/local.db"
-    
+    SUPABASE_DB_URL: str
+        
     # ── LLM ───────────────────────────────────────────────────
     AI_PROVIDER: str = "auto"  # auto | openai | gemini
     OPENAI_API_KEY: str = "dummy-key"
