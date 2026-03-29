@@ -68,23 +68,6 @@ export async function getPartners() {
   return data ?? [];
 }
 
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-
-async function getAuthenticatedClient() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    redirect("/login");
-  }
-
-  return { supabase, user };
-}
 
 export async function getPendingApprovals() {
   const { supabase, user } = await getAuthenticatedClient();

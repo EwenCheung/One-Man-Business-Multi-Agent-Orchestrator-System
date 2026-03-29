@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import Link from "next/link";
 
 export default function LoginPage() {
   const supabase = createClient();
@@ -66,6 +67,15 @@ export default function LoginPage() {
           Log in
         </button>
       </form>
+      <p className="mt-4 text-sm text-zinc-500 text-center">
+        Don't have an account?{" "}
+        <Link
+          href="/signup"
+          className="font-medium text-zinc-900 hover:underline"
+        >
+          Sign up
+        </Link>
+      </p>
     </div>
   );
 }
