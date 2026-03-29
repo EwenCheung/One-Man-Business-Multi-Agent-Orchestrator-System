@@ -6,9 +6,9 @@ Accepts a specific SubTask assigned by the Orchestrator, executes it,
 and returns the completed task to be aggregated.
 
 ## TODO
-- [ ] Connect to database (SQL / pgvector) via SQLAlchemy session
-- [ ] Implement role-based retrieval filtering (sender_role determines what data is visible)
-- [ ] Separate exact-match retrieval (SQL WHERE) from semantic retrieval (pgvector similarity)
+- [x] Connect to database (SQL / pgvector) via SQLAlchemy session
+- [x] Implement role-based retrieval filtering (sender_role determines what data is visible)
+- [x] Separate exact-match retrieval (SQL WHERE) from semantic retrieval (pgvector similarity)
 - [ ] Return provenance with each result (source table, record ID, match type)
 - [ ] Mark results as: verified_record | inferred_relevance | missing_data
 - [ ] Add try/except with structured failure return
@@ -50,41 +50,12 @@ Output struct:
         }
     ]
 }
-
-Sample prompts
-# ────────────────────────────────────────────────────────
-# Prompt — injected when this agent uses an LLM to
-# interpret or summarize raw retrieval results.
-# ────────────────────────────────────────────────────────
-RETRIEVER_SYSTEM_PROMPT = \
-You are an Internal Data Retriever. Your ONLY job is to find and return
-factual business data from the company database.
-
-### Instructions
-- Execute the retrieval task described below.
-- Return ONLY data that matches the query. Do NOT fabricate records.
-- For each result, indicate the source and match quality:
-  - `exact_match` — direct SQL hit on a known field
-  - `semantic_match` — vector similarity search result (include similarity score)
-  - `no_match` — query returned no results
-- If the sender's role restricts access to certain data, return `access_denied` for those fields.
-
-### Role Access Rules
-- Customers/Suppliers: NO access to internal margins, cost prices, or source code
-- Investors: Access subject to NDA tier
-- Owner: Full access
-
-### Task
-{task_description}
-
-### Sender Role
-{sender_role}
 """
 
 import json
 import logging
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
 from backend.db.engine import SessionLocal
@@ -324,11 +295,21 @@ def retrieval_agent(task: SubTask) -> dict:
     llm_with_tools = llm.bind_tools(tools)
 
     messages = [
-        HumanMessage(content=(
-            f"You are a data retrieval assistant. The user's role is '{role}'.\n"
-            f"Use the available tools to answer this request:\n\n{description}\n\n"
-            f"Call the most relevant tool. Return ONLY the tool result data."
-        ))
+        SystemMessage(content=(
+            "You are an Internal Data Retriever. Your ONLY job is to find and return "
+            "factual business data from the company database.\n\n"
+            "### Instructions\n"
+            "- Execute the retrieval task described in the user message.\n"
+            "- Return ONLY data that matches the query. Do NOT fabricate records.\n"
+            "- Call the most relevant tool(s) to fulfill the request.\n"
+            "- If no tool matches the request, state that the data is not available.\n\n"
+            "### Role Access Rules\n"
+            "- Customers / Suppliers: NO access to internal margins, cost prices, or supplier source data\n"
+            "- Investors: Access subject to NDA tier — full financials and supply overview permitted\n"
+            "- Owner: Full access to all data\n\n"
+            f"### Sender Role\n{role}"
+        )),
+        HumanMessage(content=f"### Task\n{description}"),
     ]
 
     try:
