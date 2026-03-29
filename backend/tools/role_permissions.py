@@ -24,6 +24,16 @@ from backend.tools.retrieval_tools import (
     get_partner_profile,
     get_partner_agreements,
     get_partner_products,
+    # Semantic search — customer / supplier / partner
+    semantic_search_product_catalog,
+    # Semantic search — supplier
+    semantic_search_supplier_contracts,
+    # Semantic search — investor
+    semantic_search_full_product_table,
+    semantic_search_supply_overview,
+    semantic_search_all_partner_agreements,
+    # Semantic search — partner
+    semantic_search_partner_agreements,
 )
 
 ROLE_TOOL_MAP: dict[str, list] = {
@@ -31,11 +41,14 @@ ROLE_TOOL_MAP: dict[str, list] = {
         get_product_catalog,
         get_customer_orders,
         get_customer_profile,
+        semantic_search_product_catalog,
     ],
     "supplier": [
         get_supplier_profile,
         get_supplier_contracts,
         get_product_stock,
+        semantic_search_product_catalog,
+        semantic_search_supplier_contracts,
     ],
     "investor": [
         get_full_product_table,
@@ -44,11 +57,16 @@ ROLE_TOOL_MAP: dict[str, list] = {
         get_supply_overview,
         get_product_roi,
         get_sales_stats,
+        semantic_search_full_product_table,
+        semantic_search_supply_overview,
+        semantic_search_all_partner_agreements,
     ],
     "partner": [
         get_partner_profile,
         get_partner_agreements,
         get_partner_products,
+        semantic_search_product_catalog,
+        semantic_search_partner_agreements,
     ],
 }
 
