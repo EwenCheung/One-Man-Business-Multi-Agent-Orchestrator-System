@@ -44,3 +44,36 @@ for replies flagged by the Risk Node.
 #     Returns: {"status": "rejected", "action": "edit" | "discard"}
 #     """
 #     pass
+
+def approve_memory(proposal_id: str):
+    session = SupabaseSessionLocal()
+
+    proposal = session.execute(text("""
+        SELECT * FROM memory_update_proposals
+        WHERE id = :id
+    """), {"id": proposal_id}).mappings().first()
+
+    if not proposal:
+        raise Exception("Proposal not found")
+
+    records = proposal["proposed_content"]
+
+    for r in records:
+        session.execute(text("""
+            INSERT INTO memory_entries (
+                owner_id, sender_id, sender_name, sender_role,
+                memory_type, content, summary, tags, importance
+            )
+            VALUES (
+                :owner_id, :sender_id, :sender_name, :sender_role,
+                :memory_type, :content, :summary, :tags, :importance
+            )
+        """), r)
+
+    session.execute(text("""
+        UPDATE memory_update_proposals
+        SET status = 'approved'
+        WHERE id = :id
+    """), {"id": proposal_id})
+
+    session.commit()
