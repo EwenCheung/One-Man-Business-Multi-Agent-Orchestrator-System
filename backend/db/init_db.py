@@ -1,6 +1,7 @@
 from sqlalchemy import text
 
-from backend.db.engine import engine, Base
+from backend.db.engine import engine
+from backend.db.models import Base
 from backend.db import models  # noqa: F401 — registers ORM models with Base.metadata
 
 def init():
