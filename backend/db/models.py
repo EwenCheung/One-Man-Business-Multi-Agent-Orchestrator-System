@@ -7,15 +7,17 @@ SQLAlchemy ORM models for all persistent tables.
 - [ ] Define Message model (id, thread_id, sender_id, content, role, timestamp, status)
 - [ ] Define SenderProfile model (id, name, role, email, metadata, created_at)
 - [ ] Define PolicyRule model (id, category, rule_text, hard_constraint, created_at)
+- [x] Define PolicyChunk model - chunked policy docs with pgvector embeddings
 - [ ] Define MemoryRecord model (id, sender_id, memory_type, content, confidence, created_at, expires_at)
 - [ ] Add pgvector column on MemoryRecord and PolicyRule
 """
 
 from datetime import datetime, date
 from decimal import Decimal
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     String, Text, Numeric, Integer, Boolean,
-    Date, DateTime, ForeignKey, func
+    Date, DateTime, ForeignKey, Index, func
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -130,3 +132,29 @@ class PartnerProduct(Base):
     partner: Mapped["Partner"] = relationship(back_populates="partner_products")
     product: Mapped["Product"] = relationship(back_populates="partner_products")
     agreement: Mapped["PartnerAgreement"] = relationship(back_populates="partner_products")
+
+# ─── POLICY TABLES ───
+
+class PolicyChunk(Base):
+    __tablename__ = "policy_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_file: Mapped[str] = mapped_column(String(255))
+    page_number: Mapped[int] = mapped_column(Integer)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    chunk_text: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(100), nullable=True)
+    hard_constraint: Mapped[bool] = mapped_column(Boolean, default=False)
+    embedding = mapped_column(Vector(1536), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # Use HNSW index to build embedding
+    __table_args__ = (
+        Index(
+            "ix_policy_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
