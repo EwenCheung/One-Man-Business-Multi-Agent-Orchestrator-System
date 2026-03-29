@@ -2,11 +2,18 @@
 Risk Node Tests — verify correct risk classification.
 """
 
+from unittest.mock import MagicMock, patch
+import os
+
 import pytest
 
-from backend.nodes.risk import (
-    risk_node,
-    _aggregate_risk,
+from backend.nodes.risk import risk_node
+from backend.nodes.risk_llm import RiskJudgement, llm_second_pass
+from backend.nodes.risk_rules import (
+    aggregate_risk,
+    check_confidence,
+    check_intent_urgency,
+    check_tone,
 )
 
 
@@ -393,20 +400,20 @@ class TestAggregation:
     """Verify the _aggregate_risk scoring logic directly."""
 
     def test_no_flags_is_low(self):
-        assert _aggregate_risk([]) == ("low", False)
+        assert aggregate_risk([]) == ("low", False)
 
     def test_single_medium_flag(self):
-        level, approval = _aggregate_risk(["Price match promise detected — requires policy verification"])
+        level, approval = aggregate_risk(["Price match promise detected — requires policy verification"])
         assert level == "medium"
         assert approval is True
 
     def test_escalation_flag_is_high(self):
-        level, approval = _aggregate_risk(["ESCALATION: Legal action language detected"])
+        level, approval = aggregate_risk(["ESCALATION: Legal action language detected"])
         assert level == "high"
         assert approval is True
 
     def test_confidentiality_flag_is_high(self):
-        level, approval = _aggregate_risk(["CONFIDENTIALITY: Internal margin disclosure to customer — blocked by policy"])
+        level, approval = aggregate_risk(["CONFIDENTIALITY: Internal margin disclosure to customer — blocked by policy"])
         assert level == "high"
         assert approval is True
 
@@ -416,7 +423,7 @@ class TestAggregation:
             "Bulk discount offer detected — requires policy verification",
             "Delivery guarantee detected — must be confirmed by retriever agent",
         ]
-        level, approval = _aggregate_risk(flags)
+        level, approval = aggregate_risk(flags)
         assert level == "high"
         assert approval is True
 
@@ -425,22 +432,375 @@ class TestAggregation:
             "Price match promise detected — requires policy verification",
             "Delivery guarantee detected — must be confirmed by retriever agent",
         ]
-        level, approval = _aggregate_risk(flags)
+        level, approval = aggregate_risk(flags)
         assert level == "medium"
         assert approval is True
 
     def test_policy_requires_approval_is_medium(self):
-        level, approval = _aggregate_risk(["POLICY REQUIRES APPROVAL: Owner sign-off needed per task p2"])
+        level, approval = aggregate_risk(["POLICY REQUIRES APPROVAL: Owner sign-off needed per task p2"])
         assert level == "medium"
         assert approval is True
 
     def test_policy_violation_is_high(self):
-        level, approval = _aggregate_risk(["POLICY VIOLATION: Policy disallowed action in task p1"])
+        level, approval = aggregate_risk(["POLICY VIOLATION: Policy disallowed action in task p1"])
+        assert level == "high"
+        assert approval is True
+
+    def test_low_confidence_is_high(self):
+        level, approval = aggregate_risk(["LOW CONFIDENCE: Reply agent reported low confidence — significant gaps"])
+        assert level == "high"
+        assert approval is True
+
+    def test_tone_high_risk_is_high(self):
+        level, approval = aggregate_risk(["TONE HIGH RISK: over-committed — reply may imply unverified commitments"])
         assert level == "high"
         assert approval is True
 
 
+# ── Confidence-Based Auto-Hold (Idea 6) ──────────────────────
+
+class TestConfidenceBased:
+    """Confidence level and unverified claims from the reply agent should feed risk."""
+
+    def test_low_confidence_level_is_high_risk(self):
+        state = {
+            "reply_text": "We can sort that out for you.",
+            "sender_role": "customer",
+            "confidence_level": "low",
+        }
+        result = risk_node(state)
+        assert result["risk_level"] == "high"
+        assert result["requires_approval"] is True
+        assert any("LOW CONFIDENCE" in f for f in result["risk_flags"])
+
+    def test_medium_confidence_level_is_medium_risk(self):
+        state = {
+            "reply_text": "We can sort that out for you.",
+            "sender_role": "customer",
+            "confidence_level": "medium",
+        }
+        result = risk_node(state)
+        assert result["requires_approval"] is True
+        assert any("MEDIUM CONFIDENCE" in f for f in result["risk_flags"])
+
+    def test_high_confidence_level_no_flag(self):
+        state = {
+            "reply_text": "Here are your order details.",
+            "sender_role": "customer",
+            "confidence_level": "high",
+        }
+        result = risk_node(state)
+        confidence_flags = [f for f in result["risk_flags"] if "CONFIDENCE" in f]
+        assert confidence_flags == []
+
+    def test_unverified_claims_are_flagged(self):
+        state = {
+            "reply_text": "We will ship by Friday.",
+            "sender_role": "customer",
+            "confidence_level": "medium",
+            "unverified_claims": ["ships by Friday — not confirmed by retriever"],
+        }
+        result = risk_node(state)
+        assert any("UNVERIFIED CLAIM" in f for f in result["risk_flags"])
+
+    def test_confidence_note_keyword_fallback(self):
+        """If confidence_level is absent, keyword scan on confidence_note fires."""
+        state = {
+            "reply_text": "We can look into that.",
+            "sender_role": "customer",
+            "confidence_level": "",
+            "confidence_note": "Medium confidence — stock not explicitly confirmed; reply hedged accordingly.",
+        }
+        result = risk_node(state)
+        assert any("MEDIUM CONFIDENCE" in f for f in result["risk_flags"])
+
+    def test_check_confidence_direct_low(self):
+        flags = check_confidence("low", "", [])
+        assert any("LOW CONFIDENCE" in f for f in flags)
+
+    def test_check_confidence_direct_medium(self):
+        flags = check_confidence("medium", "", [])
+        assert any("MEDIUM CONFIDENCE" in f for f in flags)
+
+    def test_check_confidence_direct_high_no_flags(self):
+        flags = check_confidence("high", "", [])
+        assert flags == []
+
+    def test_check_confidence_unverified_claims(self):
+        flags = check_confidence("high", "", ["price quoted — not verified by policy agent"])
+        assert any("UNVERIFIED CLAIM" in f for f in flags)
+
+
+# ── Tone Analysis (Idea 2) ────────────────────────────────────
+
+class TestToneAnalysis:
+    """Tone flags self-reported by the reply agent should raise risk level."""
+
+    def test_over_committed_is_high_risk(self):
+        state = {
+            "reply_text": "We will sort everything out.",
+            "sender_role": "customer",
+            "tone_flags": ["over-committed"],
+        }
+        result = risk_node(state)
+        assert result["risk_level"] == "high"
+        assert result["requires_approval"] is True
+        assert any("TONE HIGH RISK" in f for f in result["risk_flags"])
+
+    def test_speculative_is_high_risk(self):
+        state = {
+            "reply_text": "We expect to have that resolved soon.",
+            "sender_role": "customer",
+            "tone_flags": ["speculative"],
+        }
+        result = risk_node(state)
+        assert result["risk_level"] == "high"
+        assert any("TONE HIGH RISK" in f for f in result["risk_flags"])
+
+    def test_over_apologetic_is_medium_risk(self):
+        state = {
+            "reply_text": "We are so sorry for this.",
+            "sender_role": "customer",
+            "tone_flags": ["over-apologetic"],
+        }
+        result = risk_node(state)
+        assert result["requires_approval"] is True
+        assert any("TONE MEDIUM RISK" in f for f in result["risk_flags"])
+
+    def test_defensive_is_medium_risk(self):
+        state = {
+            "reply_text": "This is not our fault.",
+            "sender_role": "customer",
+            "tone_flags": ["defensive"],
+        }
+        result = risk_node(state)
+        assert result["requires_approval"] is True
+        assert any("TONE MEDIUM RISK" in f for f in result["risk_flags"])
+
+    def test_no_tone_flags_no_tone_risk(self):
+        state = {
+            "reply_text": "Thank you for reaching out.",
+            "sender_role": "customer",
+            "tone_flags": [],
+        }
+        result = risk_node(state)
+        tone_flags = [f for f in result["risk_flags"] if "TONE" in f]
+        assert tone_flags == []
+
+    def test_check_tone_direct(self):
+        flags = check_tone(["over-committed", "defensive"])
+        assert any("TONE HIGH RISK" in f for f in flags)
+        assert any("TONE MEDIUM RISK" in f for f in flags)
+
+
+# ── Intent + Urgency Sensitivity (Idea 8 context) ────────────
+
+class TestIntentUrgency:
+    """High-risk intents and critical urgency should add context flags."""
+
+    @pytest.mark.parametrize("intent", ["complaint", "legal", "escalation", "dispute", "refund", "chargeback"])
+    def test_high_risk_intent_flagged(self, intent):
+        state = {
+            "reply_text": "Thank you for your message.",
+            "sender_role": "customer",
+            "intent_label": intent,
+            "urgency_level": "normal",
+        }
+        result = risk_node(state)
+        assert any("CONTEXT" in f for f in result["risk_flags"])
+
+    def test_critical_urgency_flagged(self):
+        state = {
+            "reply_text": "Thank you for your message.",
+            "sender_role": "customer",
+            "intent_label": "inquiry",
+            "urgency_level": "critical",
+        }
+        result = risk_node(state)
+        assert any("CONTEXT" in f and "urgency" in f.lower() for f in result["risk_flags"])
+
+    def test_normal_intent_and_urgency_no_context_flag(self):
+        state = {
+            "reply_text": "Thank you for your message.",
+            "sender_role": "customer",
+            "intent_label": "inquiry",
+            "urgency_level": "normal",
+        }
+        result = risk_node(state)
+        context_flags = [f for f in result["risk_flags"] if "CONTEXT" in f]
+        assert context_flags == []
+
+    def test_check_intent_urgency_direct(self):
+        flags = check_intent_urgency("complaint", "critical")
+        assert len(flags) == 2
+        assert any("complaint" in f for f in flags)
+        assert any("urgency" in f.lower() for f in flags)
+
+
 # ── Combined / Integration ────────────────────────────────────
+
+# ── LLM Second Pass ────────────────────────────────────
+
+class TestLLMSecondPass:
+    """LLM second pass fires only for MEDIUM results and can revise the level."""
+
+    _PATCH = "backend.utils.llm_provider.get_chat_llm"
+
+    def _mock_llm(self, mock_get_llm, additional_flags, revised_risk_level, reasoning="OK."):
+        """Wire mock_get_llm to return a mock LLM that produces a RiskJudgement."""
+        judgement = RiskJudgement(
+            additional_flags=additional_flags,
+            revised_risk_level=revised_risk_level,
+            reasoning=reasoning,
+        )
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value.invoke.return_value = judgement
+        mock_get_llm.return_value = mock_llm
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_adds_flags(self, mock_get_llm):
+        self._mock_llm(
+            mock_get_llm,
+            additional_flags=["IMPLIED COMMITMENT: 'I'll make it right' implies a refund"],
+            revised_risk_level="medium",
+        )
+        additional, revised = llm_second_pass(
+            reply_text="I'll make it right for you.",
+            sender_role="customer",
+            intent_label="complaint",
+            urgency_level="normal",
+            completed_tasks=[],
+            existing_flags=["TONE MEDIUM RISK: over-apologetic"],
+            current_level="medium",
+        )
+        assert any("IMPLIED COMMITMENT" in f for f in additional)
+        assert revised == "medium"
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_flags_prefixed_with_llm(self, mock_get_llm):
+        self._mock_llm(
+            mock_get_llm,
+            additional_flags=["IMPLIED COMMITMENT: 'this will be resolved'"],
+            revised_risk_level="medium",
+        )
+        additional, _ = llm_second_pass("x", "customer", "complaint", "normal", [], [], "medium")
+        assert all(f.startswith("LLM:") for f in additional)
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_upgrades_to_high(self, mock_get_llm):
+        self._mock_llm(
+            mock_get_llm,
+            additional_flags=["FACTUAL CONTRADICTION: claims same-day delivery not confirmed"],
+            revised_risk_level="high",
+            reasoning="Contradiction warrants HIGH.",
+        )
+        additional, revised = llm_second_pass(
+            reply_text="We can deliver today.",
+            sender_role="customer",
+            intent_label="inquiry",
+            urgency_level="normal",
+            completed_tasks=[],
+            existing_flags=["Unverified delivery timeline"],
+            current_level="medium",
+        )
+        assert revised == "high"
+        assert len(additional) == 1
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_downgrades_to_low(self, mock_get_llm):
+        self._mock_llm(
+            mock_get_llm,
+            additional_flags=[],
+            revised_risk_level="low",
+            reasoning="Rule-based flag was a false positive; reply is safe.",
+        )
+        additional, revised = llm_second_pass(
+            reply_text="Thank you for your order.",
+            sender_role="customer",
+            intent_label="inquiry",
+            urgency_level="normal",
+            completed_tasks=[],
+            existing_flags=["TONE MEDIUM RISK: over-apologetic"],
+            current_level="medium",
+        )
+        assert additional == []
+        assert revised == "low"
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_llm_failure_falls_back(self, mock_get_llm):
+        mock_get_llm.side_effect = RuntimeError("API timeout")
+        additional, revised = llm_second_pass(
+            reply_text="Thank you.",
+            sender_role="customer",
+            intent_label="inquiry",
+            urgency_level="normal",
+            completed_tasks=[],
+            existing_flags=[],
+            current_level="medium",
+        )
+        assert additional == []
+        assert revised == "medium"
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_invalid_level_falls_back_to_current(self, mock_get_llm):
+        self._mock_llm(
+            mock_get_llm,
+            additional_flags=[],
+            revised_risk_level="NONSENSE",
+        )
+        _, revised = llm_second_pass("x", "customer", "inquiry", "normal", [], [], "medium")
+        assert revised == "medium"
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_risk_node_medium_triggers_llm_pass(self, mock_get_llm):
+        """Integration: a MEDIUM rule-based result calls the LLM second pass."""
+        self._mock_llm(
+            mock_get_llm,
+            additional_flags=["IMPLIED COMMITMENT: 'We'll sort this out' is an implicit promise"],
+            revised_risk_level="high",
+            reasoning="Implicit promise warrants upgrade to HIGH.",
+        )
+        state = {
+            "reply_text": "We'll sort this out for you.",
+            "sender_role": "customer",
+            "tone_flags": ["over-apologetic"],  # 1 flag → MEDIUM from rule-based
+        }
+        result = risk_node(state)
+        mock_get_llm.assert_called_once()
+        assert result["risk_level"] == "high"
+        assert any("LLM:" in f for f in result["risk_flags"])
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_risk_node_high_skips_llm_pass(self, mock_get_llm):
+        """Integration: a HIGH rule-based result does not call the LLM second pass."""
+        state = {
+            "reply_text": "There is a physical safety hazard with this product.",
+            "sender_role": "customer",
+        }
+        risk_node(state)
+        mock_get_llm.assert_not_called()
+
+    @patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"})
+    @patch("backend.utils.llm_provider.get_chat_llm")
+    def test_risk_node_low_skips_llm_pass(self, mock_get_llm):
+        """Integration: a LOW rule-based result does not call the LLM second pass."""
+        state = {
+            "reply_text": "Thank you for your message. We will be in touch.",
+            "sender_role": "customer",
+        }
+        risk_node(state)
+        mock_get_llm.assert_not_called()
+
+
+# ── Combined Scenarios ──────────────────────────────────
 
 class TestCombinedScenarios:
     """End-to-end scenarios with multiple risk signals."""
