@@ -1,19 +1,36 @@
-'''
-Sets up SQLalchemy for relational DB
-'''
+"""
+Sets up SQLAlchemy for relational DBs
+"""
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.config import settings
-from backend.db.models import Base
 
-# Create SQLalchemy engine and session
+# Existing DB
 engine = create_engine(settings.DATABASE_URL, echo=False)
-SessionLocal = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
-# Create session generator
+# Supabase Postgres
+supabase_engine = create_engine(
+    settings.SUPABASE_DB_URL,
+    connect_args={"sslmode": "require"},
+    echo=False,
+)
+SupabaseSessionLocal = sessionmaker(
+    bind=supabase_engine,
+    autocommit=False,
+    autoflush=False,
+)
+
 def get_session():
     session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+def get_supabase_session():
+    session = SupabaseSessionLocal()
     try:
         yield session
     finally:

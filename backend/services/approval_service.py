@@ -44,3 +44,134 @@ for replies flagged by the Risk Node.
 #     Returns: {"status": "rejected", "action": "edit" | "discard"}
 #     """
 #     pass
+
+def approve_memory(proposal_id: str):
+    session = SupabaseSessionLocal()
+    try:
+        proposal = session.execute(
+            text("""
+                SELECT *
+                FROM public.memory_update_proposals
+                WHERE id = :id
+            """),
+            {"id": proposal_id},
+        ).mappings().first()
+
+        if not proposal:
+            raise ValueError("Proposal not found")
+
+        proposed_content = proposal["proposed_content"]
+        if isinstance(proposed_content, str):
+            import json
+            proposed_content = json.loads(proposed_content)
+
+        for record in proposed_content:
+            session.execute(
+                text("""
+                    INSERT INTO public.memory_entries (
+                        owner_id,
+                        sender_id,
+                        sender_name,
+                        sender_role,
+                        memory_type,
+                        content,
+                        summary,
+                        tags,
+                        importance,
+                        created_at
+                    )
+                    VALUES (
+                        :owner_id,
+                        :sender_id,
+                        :sender_name,
+                        :sender_role,
+                        :memory_type,
+                        :content,
+                        :summary,
+                        :tags,
+                        :importance,
+                        now()
+                    )
+                """),
+                {
+                    "owner_id": proposal["owner_id"],
+                    "sender_id": record.get("sender_id"),
+                    "sender_name": record.get("sender_name"),
+                    "sender_role": record.get("sender_role"),
+                    "memory_type": record.get("memory_type"),
+                    "content": record.get("content"),
+                    "summary": record.get("summary"),
+                    "tags": record.get("tags", []),
+                    "importance": record.get("importance", 0.5),
+                },
+            )
+
+        session.execute(
+            text("""
+                UPDATE public.memory_update_proposals
+                SET status = 'approved',
+                    reviewed_at = now()
+                WHERE id = :id
+            """),
+            {"id": proposal_id},
+        )
+
+        session.execute(
+            text("""
+                UPDATE public.pending_approvals
+                SET status = 'approved'
+                WHERE proposal_id = :id
+            """),
+            {"id": proposal_id},
+        )
+
+        session.commit()
+
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def reject_memory(proposal_id: str):
+    session = SupabaseSessionLocal()
+    try:
+        proposal = session.execute(
+            text("""
+                SELECT id
+                FROM public.memory_update_proposals
+                WHERE id = :id
+            """),
+            {"id": proposal_id},
+        ).mappings().first()
+
+        if not proposal:
+            raise ValueError("Proposal not found")
+
+        session.execute(
+            text("""
+                UPDATE public.memory_update_proposals
+                SET status = 'rejected',
+                    reviewed_at = now()
+                WHERE id = :id
+            """),
+            {"id": proposal_id},
+        )
+
+        session.execute(
+            text("""
+                UPDATE public.pending_approvals
+                SET status = 'rejected'
+                WHERE proposal_id = :id
+            """),
+            {"id": proposal_id},
+        )
+
+        session.commit()
+
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
