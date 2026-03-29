@@ -86,8 +86,6 @@ _CONFIDENTIAL_TERMS: list[tuple[re.Pattern, str]] = [
 _CONFIDENTIAL_BLOCKED_ROLES = {"customer", "supplier", "unknown"}
 
 
-# ── Scanning Functions ─────────────────────────────────────────
-
 def _scan_patterns(text: str, patterns: list[tuple[re.Pattern, str]]) -> list[str]:
     """Run a list of (compiled_regex, flag_message) against *text*."""
     flags = []
@@ -125,16 +123,37 @@ def _check_escalation_triggers(reply_text: str) -> list[str]:
 
 
 def _check_policy_cross(completed_tasks: list[dict[str, Any]]) -> list[str]:
-    """Cross-check reply against any policy-agent findings that flagged 'disallowed'."""
-    flags = []
+    """Cross-check reply against policy-agent findings.
+
+    Catches three policy-agent signals:
+      - verdict = DISALLOWED        → hard policy violation
+      - verdict = REQUIRES_APPROVAL → owner must sign off
+      - hard_constraint = YES       → non-overridable rule breached
+    """
+    flags: list[str] = []
     for task in completed_tasks:
         if task.get("assignee") != "policy":
             continue
         result_text = (task.get("result") or "").lower()
-        if "disallowed" in result_text:
+        task_ref = f"task {task.get('task_id', '?')} — '{task.get('description', '')}'"
+
+        has_disallowed = (
+            "verdict:    disallowed" in result_text
+            or (result_text.startswith("disallowed") and "verdict:" not in result_text)
+        )
+        has_requires_approval = "verdict:    requires_approval" in result_text
+
+        if has_disallowed:
+            flags.append(f"POLICY VIOLATION: Policy disallowed action in {task_ref}")
+
+        elif has_requires_approval:
             flags.append(
-                f"POLICY VIOLATION: Reply may conflict with policy task "
-                f"{task.get('task_id', '?')} — '{task.get('description', '')}'"
+                f"POLICY REQUIRES APPROVAL: Owner sign-off needed per {task_ref}"
+            )
+
+        if "hard constraint: yes" in result_text:
+            flags.append(
+                f"POLICY VIOLATION: Hard constraint breached in {task_ref}"
             )
     return flags
 
@@ -169,6 +188,7 @@ def _check_unverified_claims(reply_text: str, completed_tasks: list[dict[str, An
 _ESCALATION_PREFIX = "ESCALATION:"
 _CONFIDENTIALITY_PREFIX = "CONFIDENTIALITY:"
 _POLICY_PREFIX = "POLICY VIOLATION:"
+_POLICY_APPROVAL_PREFIX = "POLICY REQUIRES APPROVAL:"
 
 
 def _aggregate_risk(flags: list[str]) -> tuple[str, bool]:
@@ -187,10 +207,15 @@ def _aggregate_risk(flags: list[str]) -> tuple[str, bool]:
     has_escalation = any(f.startswith(_ESCALATION_PREFIX) for f in flags)
     has_confidentiality = any(f.startswith(_CONFIDENTIALITY_PREFIX) for f in flags)
     has_policy_violation = any(f.startswith(_POLICY_PREFIX) for f in flags)
+    has_policy_approval = any(f.startswith(_POLICY_APPROVAL_PREFIX) for f in flags)
 
     # Escalation, confidentiality leaks, or policy violations → always HIGH
     if has_escalation or has_confidentiality or has_policy_violation:
         return ("high", True)
+
+    # Policy requires-approval → at least MEDIUM
+    if has_policy_approval:
+        return ("medium", True)
 
     # Multiple medium-severity flags → treat as high
     if len(flags) >= 3:
@@ -218,7 +243,6 @@ def risk_node(state: dict) -> dict:
     sender_role: str = state.get("sender_role", "unknown")
     completed_tasks: list[dict[str, Any]] = state.get("completed_tasks", [])
 
-    # Collect all risk flags
     flags = []
     flags.extend(_scan_for_risky_keywords(reply_text))
     flags.extend(_check_disclosure(reply_text, sender_role))
