@@ -6,11 +6,6 @@ import pytest
 
 from backend.nodes.risk import (
     risk_node,
-    _scan_for_risky_keywords,
-    _check_disclosure,
-    _check_escalation_triggers,
-    _check_policy_cross,
-    _check_unverified_claims,
     _aggregate_risk,
 )
 
@@ -252,7 +247,8 @@ class TestConfidentiality:
 class TestPolicyCrossCheck:
     """If a policy agent marked something 'disallowed', the reply should be flagged."""
 
-    def test_disallowed_policy(self):
+    def test_disallowed_policy_old_format(self):
+        """Backward compat: plain 'disallowed' substring still triggers."""
         state = {
             "reply_text": "Sure, we can do that.",
             "sender_role": "customer",
@@ -270,6 +266,79 @@ class TestPolicyCrossCheck:
         assert result["risk_level"] == "high"
         assert any("POLICY VIOLATION" in f for f in result["risk_flags"])
 
+    def test_disallowed_policy_structured_format(self):
+        """New format: _format_result produces 'Verdict:    DISALLOWED'."""
+        state = {
+            "reply_text": "Sure, we can do that.",
+            "sender_role": "customer",
+            "completed_tasks": [
+                {
+                    "task_id": "p1",
+                    "assignee": "policy",
+                    "status": "completed",
+                    "result": (
+                        "Verdict:    DISALLOWED\n"
+                        "Confidence: HIGH\n"
+                        "Hard Constraint: NO\n\n"
+                        "Explanation:\nBulk discounts over 15% violate pricing rule §3."
+                    ),
+                    "description": "Can we offer 25% bulk discount?",
+                }
+            ],
+        }
+        result = risk_node(state)
+        assert result["risk_level"] == "high"
+        assert any("POLICY VIOLATION" in f for f in result["risk_flags"])
+
+    def test_requires_approval_policy(self):
+        """Policy verdict REQUIRES_APPROVAL should flag for owner sign-off."""
+        state = {
+            "reply_text": "We can look into that for you.",
+            "sender_role": "customer",
+            "completed_tasks": [
+                {
+                    "task_id": "p2",
+                    "assignee": "policy",
+                    "status": "completed",
+                    "result": (
+                        "Verdict:    REQUIRES_APPROVAL\n"
+                        "Confidence: MEDIUM\n"
+                        "Hard Constraint: NO\n\n"
+                        "Explanation:\nCustom pricing requires owner approval."
+                    ),
+                    "description": "Can we offer custom pricing?",
+                }
+            ],
+        }
+        result = risk_node(state)
+        assert result["requires_approval"] is True
+        assert any("POLICY REQUIRES APPROVAL" in f for f in result["risk_flags"])
+
+    def test_hard_constraint_flag(self):
+        """Hard constraint = YES should always trigger a POLICY VIOLATION."""
+        state = {
+            "reply_text": "We can share that information.",
+            "sender_role": "customer",
+            "completed_tasks": [
+                {
+                    "task_id": "p3",
+                    "assignee": "policy",
+                    "status": "completed",
+                    "result": (
+                        "Verdict:    DISALLOWED\n"
+                        "Confidence: HIGH\n"
+                        "Hard Constraint: YES\n\n"
+                        "Explanation:\nSharing supplier cost data with customers is a hard constraint."
+                    ),
+                    "description": "Can we share supplier cost breakdown?",
+                }
+            ],
+        }
+        result = risk_node(state)
+        assert result["risk_level"] == "high"
+        # Should have both a disallowed flag and a hard constraint flag
+        assert sum("POLICY VIOLATION" in f for f in result["risk_flags"]) >= 2
+
     def test_allowed_policy_no_flag(self):
         state = {
             "reply_text": "Sure, we can do that.",
@@ -279,13 +348,42 @@ class TestPolicyCrossCheck:
                     "task_id": "p1",
                     "assignee": "policy",
                     "status": "completed",
-                    "result": "allowed — 10% discount is within policy",
+                    "result": (
+                        "Verdict:    ALLOWED\n"
+                        "Confidence: HIGH\n"
+                        "Hard Constraint: NO\n\n"
+                        "Explanation:\n10% discount is within policy."
+                    ),
                     "description": "Can we offer 10% discount?",
                 }
             ],
         }
         result = risk_node(state)
-        policy_flags = [f for f in result["risk_flags"] if "POLICY VIOLATION" in f]
+        policy_flags = [f for f in result["risk_flags"] if "POLICY" in f]
+        assert policy_flags == []
+
+    def test_not_covered_policy_no_flag(self):
+        """Verdict NOT_COVERED should not flag — absence of rules isn't a violation."""
+        state = {
+            "reply_text": "Let me check on that.",
+            "sender_role": "customer",
+            "completed_tasks": [
+                {
+                    "task_id": "p4",
+                    "assignee": "policy",
+                    "status": "completed",
+                    "result": (
+                        "Verdict:    NOT_COVERED\n"
+                        "Confidence: LOW\n"
+                        "Hard Constraint: NO\n\n"
+                        "Explanation:\nNo existing policy covers this situation."
+                    ),
+                    "description": "Can we do X?",
+                }
+            ],
+        }
+        result = risk_node(state)
+        policy_flags = [f for f in result["risk_flags"] if "POLICY" in f]
         assert policy_flags == []
 
 
@@ -329,6 +427,16 @@ class TestAggregation:
         ]
         level, approval = _aggregate_risk(flags)
         assert level == "medium"
+        assert approval is True
+
+    def test_policy_requires_approval_is_medium(self):
+        level, approval = _aggregate_risk(["POLICY REQUIRES APPROVAL: Owner sign-off needed per task p2"])
+        assert level == "medium"
+        assert approval is True
+
+    def test_policy_violation_is_high(self):
+        level, approval = _aggregate_risk(["POLICY VIOLATION: Policy disallowed action in task p1"])
+        assert level == "high"
         assert approval is True
 
 
