@@ -1,23 +1,32 @@
 import DataTable from "@/components/data-table";
-import { getCustomers } from "@/lib/api";
-import { CustomerRow } from "@/lib/types";
+import { getInvestors } from "@/lib/api";
 
-export default async function CustomersPage() {
-  const data = await getCustomers();
+type InvestorRow = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  focus: string | null;
+  status: string | null;
+};
 
-  const columns: { key: keyof CustomerRow; label: string }[] = [
-    { key: "id", label: "Customer ID" },
+export default async function InvestorsPage() {
+  const data = await getInvestors();
+
+  const columns: { key: keyof InvestorRow; label: string }[] = [
+    { key: "id", label: "Investor ID" },
     { key: "name", label: "Name" },
-    { key: "preference", label: "Preference" },
-    { key: "lastInteraction", label: "Last Interaction" },
+    { key: "email", label: "Email" },
+    { key: "focus", label: "Focus" },
+    { key: "status", label: "Status" },
   ];
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-zinc-900">Customers</h1>
+        <h1 className="text-3xl font-semibold text-zinc-900">Investors</h1>
         <p className="mt-2 text-zinc-500">
-          Customer-facing summary data and recent preferences.
+          Investor contacts and profile information.
         </p>
       </div>
 

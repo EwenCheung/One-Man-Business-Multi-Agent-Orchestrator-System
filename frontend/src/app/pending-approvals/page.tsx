@@ -11,14 +11,16 @@ export default async function PendingApprovalsPage() {
           Pending Approvals
         </h1>
         <p className="mt-2 text-zinc-500">
-          Review proposed updates before writing to memory or database.
+          Review changes that require owner confirmation.
         </p>
       </div>
 
       <div className="space-y-4">
-        {approvals.map((item) => (
-          <ApprovalCard key={item.id} item={item} />
-        ))}
+        {approvals.length === 0 ? (
+          <p className="text-sm text-zinc-500">No pending approvals.</p>
+        ) : (
+          approvals.map((item) => <ApprovalCard key={item.id} item={item} />)
+        )}
       </div>
     </div>
   );
