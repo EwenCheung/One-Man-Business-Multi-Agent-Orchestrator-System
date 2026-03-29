@@ -7,18 +7,18 @@ export default async function PendingApprovalsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-zinc-900">
-          Pending Approvals
-        </h1>
+        <h1 className="text-3xl font-semibold text-zinc-900">Pending Approvals</h1>
         <p className="mt-2 text-zinc-500">
-          Review proposed updates before writing to memory or database.
+          Review items that require owner confirmation.
         </p>
       </div>
 
       <div className="space-y-4">
-        {approvals.map((item) => (
-          <ApprovalCard key={item.id} item={item} />
-        ))}
+        {approvals.length === 0 ? (
+          <p className="text-sm text-zinc-500">No pending approvals.</p>
+        ) : (
+          approvals.map((item) => <ApprovalCard key={item.id} item={item} />)
+        )}
       </div>
     </div>
   );

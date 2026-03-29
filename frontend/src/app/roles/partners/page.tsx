@@ -1,23 +1,32 @@
 import DataTable from "@/components/data-table";
-import { getPartners } from "@/lib/api";
-import { PartnerRow } from "@/lib/types";
+import { getSuppliers } from "@/lib/api";
 
-export default async function PartnersPage() {
-  const data = await getPartners();
+type SupplierRow = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  category: string | null;
+  status: string | null;
+};
 
-  const columns: { key: keyof PartnerRow; label: string }[] = [
-    { key: "id", label: "Partner ID" },
+export default async function SuppliersPage() {
+  const data = await getSuppliers();
+
+  const columns: { key: keyof SupplierRow; label: string }[] = [
+    { key: "id", label: "Supplier ID" },
     { key: "name", label: "Name" },
-    { key: "partnershipType", label: "Partnership Type" },
+    { key: "email", label: "Email" },
+    { key: "category", label: "Category" },
     { key: "status", label: "Status" },
   ];
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-zinc-900">Partners</h1>
+        <h1 className="text-3xl font-semibold text-zinc-900">Suppliers</h1>
         <p className="mt-2 text-zinc-500">
-          Partnership summaries, status, and collaboration type.
+          Supplier records and sourcing information.
         </p>
       </div>
 
