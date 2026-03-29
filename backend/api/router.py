@@ -20,6 +20,11 @@ def approve(proposal_id: str):
     approve_memory(proposal_id)
     return {"ok": True}
 
+@api_router.post("/memory/reject/{proposal_id}")
+def reject(proposal_id: str):
+    reject_memory(proposal_id)
+    return {"ok": True}
+
 @api_router.post("/messages/incoming", response_model=PipelineResult)
 async def receive_message(incoming: IncomingMessage):
     """Accept an incoming message and run the full pipeline."""
