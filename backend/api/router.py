@@ -11,9 +11,14 @@ Endpoints:
 from fastapi import APIRouter
 
 from backend.models import IncomingMessage, PipelineResult
+from backend.services.approval_service import approve_memory
 
 api_router = APIRouter(tags=["orchestrator"])
 
+@api_router.post("/memory/approve/{proposal_id}")
+def approve(proposal_id: str):
+    approve_memory(proposal_id)
+    return {"ok": True}
 
 @api_router.post("/messages/incoming", response_model=PipelineResult)
 async def receive_message(incoming: IncomingMessage):
@@ -61,3 +66,4 @@ async def get_dashboard_summary():
     """Dashboard summary for the owner."""
     # TODO: Aggregate recent results, pending approvals, memory updates
     return {"pending_approvals": 0, "messages_today": 0, "status": "stub"}
+
