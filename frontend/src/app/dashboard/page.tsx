@@ -1,19 +1,41 @@
+import { redirect } from "next/navigation";
 import SectionCard from "@/components/section-card";
 import StatCard from "@/components/stat-card";
-import { getDashboardStats, getDailyDigest, getPendingApprovals } from "@/lib/api";
+import { createClient } from "@/lib/supabase/server";
+import LogoutButton from "@/components/logout-button";
+import {
+  getDashboardStats,
+  getDailyDigest,
+  getPendingApprovals,
+} from "@/lib/api";
 
 export default async function DashboardPage() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
   const stats = await getDashboardStats();
   const approvals = await getPendingApprovals();
   const digest = await getDailyDigest();
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-zinc-900">Dashboard</h1>
-        <p className="mt-2 text-zinc-500">
-          Overview of current system activity, approvals, and recent insights.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold text-zinc-900">Dashboard</h1>
+          <p className="mt-2 text-zinc-500">
+            Welcome back, {user.email}. Overview of current system activity,
+            approvals, and recent insights.
+          </p>
+        </div>
+
+        <LogoutButton />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
