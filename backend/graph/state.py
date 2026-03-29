@@ -56,6 +56,9 @@ class PipelineState(TypedDict, total=False):
     # ── Reply output ──────────────────────────────────────────
     reply_text: str
     confidence_note: str
+    confidence_level: str
+    unverified_claims: list[str]
+    tone_flags: list[str]
 
     # ── Risk output ───────────────────────────────────────────
     risk_level: str           # "low" | "medium" | "high"

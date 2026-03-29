@@ -1,22 +1,27 @@
 """
-Reply Agent (PROPOSAL §4.6)
+Reply Agent
 
-Drafts the final candidate response using completed task results
+Drafts the final candidate response using completed sub-agent task results
 and role-appropriate tone constraints from SOUL.md and RULE.md.
 
-## TODO
-- [ ] Build LLM prompt that injects: SOUL.md (tone), RULE.md (constraints), completed task results
-- [ ] Apply role-specific tone rules:
-      - Customer:  polite, professional, helpful, retention-focused
-      - Supplier:  direct, firm, negotiate, maximize profit
-      - Investor:  promote, optimistic, ROI-focused
-      - Partner:   professional, mutual-benefit, strategic
-      - Employee:  motivate, clear expectations, constructive
-      - Government: compliant, exact, formal
-- [ ] Use structured output: reply_text + confidence_note
-- [ ] Surface uncertainty safely — do NOT hide gaps in knowledge
-- [ ] Enforce: use ONLY facts from completed_tasks, never invent
-- [ ] Add try/except with structured failure return
+## Behaviour
+- Injects SOUL.md (persona/voice), RULE.md (hard constraints), and all
+  completed sub-agent results into a structured LLM prompt.
+- Applies role-specific tone posture (customer, supplier, investor, partner,
+  owner) on top of universal voice guidelines.
+- Returns a ``ReplyOutput`` structured object via LangChain's
+  ``with_structured_output`` containing:
+    - ``reply_text``       — the final, ready-to-send reply.
+    - ``confidence_note``  — internal 1-2 sentence confidence summary.
+    - ``confidence_level`` — machine-readable ``"high"`` | ``"medium"`` | ``"low"``.
+    - ``unverified_claims``— list of hedged statements not confirmed by sub-agents.
+    - ``tone_flags``       — list of detected tone anomalies
+                             (``"over-apologetic"``, ``"over-committed"``,
+                              ``"defensive"``, ``"speculative"``).
+- Surfaces uncertainty explicitly — never invents facts absent from
+  ``completed_tasks``.
+- Falls back to a safe acknowledgement reply on LLM failure, setting
+  ``confidence_level`` to ``"low"`` so the risk node can gate it accordingly.
 """
 
 from __future__ import annotations
@@ -46,6 +51,35 @@ class ReplyOutput(BaseModel):
             "the confidence level and any caveats. Examples: "
             "'High confidence — pricing confirmed by policy agent.' "
             "'Medium confidence — stock not explicitly confirmed; reply hedged accordingly.'"
+        )
+    )
+    confidence_level: str = Field(
+        description=(
+            "Machine-readable confidence summary. Must be exactly one of: "
+            "'high' — all claims in the reply are confirmed by sub-agent results; "
+            "'medium' — some claims are hedged or not fully confirmed; "
+            "'low' — significant gaps exist; reply relies on follow-up commitments."
+        )
+    )
+    unverified_claims: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of specific statements in the reply that could not be fully confirmed "
+            "by sub-agent results. Each entry is a short phrase identifying the claim. "
+            "Examples: ['ships within 3 days — not confirmed by retriever', "
+            "'price quoted — not verified by policy agent']. Empty if all claims verified."
+        )
+    )
+    tone_flags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of tone anomalies detected in the drafted reply that may signal risk. "
+            "Use only these labels where applicable: "
+            "'over-apologetic' — excessive apologies that imply liability; "
+            "'over-committed' — promises made beyond what was verified; "
+            "'defensive' — tone that may escalate rather than de-escalate; "
+            "'speculative' — forward-looking statements not grounded in confirmed data. "
+            "Empty list if no anomalies detected."
         )
     )
 
@@ -275,8 +309,11 @@ def reply_agent(state: PipelineState) -> dict:
         output = reply_llm.invoke(formatted_prompt)
         logger.info("ReplyAgent: reply drafted successfully for role=%s", role)
         return {
-            "reply_text":      output.reply_text,
-            "confidence_note": output.confidence_note,
+            "reply_text":        output.reply_text,
+            "confidence_note":   output.confidence_note,
+            "confidence_level":  output.confidence_level,
+            "unverified_claims": output.unverified_claims,
+            "tone_flags":        output.tone_flags,
         }
     except Exception as exc:
         logger.error("ReplyAgent: LLM call failed — %s", exc)
@@ -286,5 +323,8 @@ def reply_agent(state: PipelineState) -> dict:
                 "I need a moment to verify some details before I can give you a complete answer. "
                 "I will follow up with you shortly."
             ),
-            "confidence_note": f"Reply Agent LLM call failed: {exc}. Fallback acknowledgement sent.",
+            "confidence_note":   f"Reply Agent LLM call failed: {exc}. Fallback acknowledgement sent.",
+            "confidence_level":  "low",
+            "unverified_claims": [],
+            "tone_flags":        [],
         }
