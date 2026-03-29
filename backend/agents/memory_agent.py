@@ -1,109 +1,640 @@
-"""
-Memory Agent (PROPOSAL §4.5 + §4.8)
+from __future__ import annotations
 
-Dual-purpose agent controlled by invocation context:
-1. READ MODE:  Executed during Orchestrator fan-out to search conversation history.
-2. UPDATE MODE: Executed at the end of the pipeline to save new durable memory.
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any, Literal
 
-## TODO — READ MODE
-- [ ] Connect to conversation history DB (messages table)
-- [ ] Implement search: keyword grep + optional semantic search over past messages
-- [ ] Prioritize concise summaries over dumping raw logs
-- [ ] Mark stale or low-confidence memory
-- [ ] Distinguish: recent_context vs durable_memory
-- [ ] Add try/except with structured failure return
+from pydantic import BaseModel, Field
+from sqlalchemy import text
 
-## TODO — UPDATE MODE
-- [ ] Extract durable preferences from the completed interaction
-- [ ] Extract relationship signals (sentiment shifts, new constraints)
-- [ ] Extract unresolved follow-up items
-- [ ] Store compact summaries, NOT raw conversation logs
-- [ ] Write to DB (memory table), not static MEMORY.md
-- [ ] Filter: only store high-value memory, skip transient noise
-
-## DESIGN QUESTION
-- [ ] Should READ and UPDATE be split into two separate functions/files?
-       Currently using `task_id in state` to distinguish — this is fragile.
-       Consider: memory_read_agent() + memory_update_agent()
-"""
-
+from backend.db.engine import SupabaseSessionLocal
 from backend.graph.state import SubTask
+from backend.utils.llm_provider import get_chat_llm
 
-# ────────────────────────────────────────────────────────
-# Prompt — READ MODE: search and summarize history
-# ────────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
+
 MEMORY_READ_PROMPT = """\
-You are a Deep Memory Retrieval Agent. Your job is to perform a 'grep-style' semantic/keyword 
-search into deep historical conversation logs.
+You are a Deep Memory Retrieval Agent.
 
-### Instructions
-- The Orchestrator calls you ONLY when the recent `short_term_memory` is not enough (e.g., asking about specific old dates, past negotiations, or key decisions from months ago).
-- Search the conversation history for information exactly matching the query below.
-- Return concise summaries of the key points discussed, NOT raw message dumps.
-- For each memory extracted, indicate:
-  - `recent` — if it's uniquely from the last 7 days but important
-  - `durable` — older but still relevant (like a contract signing or preference)
-  - `stale` — old and possibly outdated (flag for human review)
-- If no relevant deep history exists, say so clearly.
+Your job is to read retrieved historical records and summarize only the memory
+that is relevant to the query.
 
-### Search Query
+Instructions:
+- Use ONLY the provided records.
+- Do NOT invent facts.
+- Return concise summaries, not raw logs.
+- Classify each memory item as one of:
+  - recent   -> important and from the last 7 days
+  - durable  -> long-term relevant fact, preference, decision, or constraint
+  - stale    -> older and potentially outdated, so should be treated cautiously
+- If nothing relevant exists, return empty lists.
+
+User Query:
 {task_description}
 
-### Conversation History
-{conversation_history}
+Retrieved Records:
+{retrieved_records}
 """
 
-# ────────────────────────────────────────────────────────
-# Prompt — UPDATE MODE: extract and save durable memory
-# ────────────────────────────────────────────────────────
 MEMORY_UPDATE_PROMPT = """\
-You are a Memory Update Agent. Your job is to extract high-value information
-from the completed interaction and save it as durable memory.
+You are a Memory Update Agent.
 
-### Instructions
-- Extract ONLY high-value items:
-  - New preferences stated by the sender
-  - Relationship signals (satisfaction, frustration, new requirements)
-  - Unresolved items that need follow-up
-  - Key decisions or commitments made
-- Do NOT store: greetings, repeated information, transient noise
-- Format each memory item as a structured record.
+Your job is to extract durable business memory from a completed interaction.
 
-### Completed Interaction
-- Sender: {sender_name} ({sender_role})
-- Original Message: {raw_message}
-- Reply Sent: {reply_text}
-- Completed Tasks: {completed_tasks_summary}
+Extract ONLY high-value memory:
+- preferences
+- constraints
+- unresolved follow-ups
+- decisions / commitments
+- relationship signals
+
+Do NOT include:
+- greetings
+- filler
+- repeated obvious facts
+- transient noise
+
+Return structured output.
+
+Sender:
+- name: {sender_name}
+- role: {sender_role}
+- id: {sender_id}
+
+Original Message:
+{raw_message}
+
+Reply Sent:
+{reply_text}
+
+Completed Tasks Summary:
+{completed_tasks_summary}
 """
 
+
+# ────────────────────────────────────────────────────────
+# STRUCTURED OUTPUT SCHEMAS
+# ────────────────────────────────────────────────────────
+
+class MemoryReadItem(BaseModel):
+    summary: str = Field(description="Concise factual summary")
+    source: str = Field(description="messages | memory_entries")
+    created_at: str | None = Field(default=None)
+    confidence: float = Field(default=0.5)
+
+
+class MemoryReadSummary(BaseModel):
+    recent: list[MemoryReadItem] = Field(default_factory=list)
+    durable: list[MemoryReadItem] = Field(default_factory=list)
+    stale: list[MemoryReadItem] = Field(default_factory=list)
+
+
+class MemoryUpdateExtraction(BaseModel):
+    preferences: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    followups: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    relationship: list[str] = Field(default_factory=list)
+
+
+RiskLevel = Literal["low", "medium", "high"]
+
+
+# ────────────────────────────────────────────────────────
+# GENERIC HELPERS
+# ────────────────────────────────────────────────────────
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
+def _json_dump(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str, indent=2)
+
+
+def _get_owner_id_from_state(state: dict) -> str | None:
+    if state.get("owner_id"):
+        return str(state["owner_id"])
+
+    injected = state.get("injected_context", {}) or {}
+    if injected.get("owner_id"):
+        return str(injected["owner_id"])
+
+    return None
+
+
+def _get_sender_id_from_state(state: dict) -> str | None:
+    if state.get("sender_id"):
+        return str(state["sender_id"])
+
+    injected = state.get("injected_context", {}) or {}
+    if injected.get("sender_id"):
+        return str(injected["sender_id"])
+
+    return None
+
+
+def _get_sender_role_from_state(state: dict) -> str | None:
+    if state.get("sender_role"):
+        return str(state["sender_role"])
+
+    injected = state.get("injected_context", {}) or {}
+    if injected.get("sender_role"):
+        return str(injected["sender_role"])
+
+    return None
+
+
+def _get_sender_name_from_state(state: dict) -> str | None:
+    if state.get("sender_name"):
+        return str(state["sender_name"])
+
+    injected = state.get("injected_context", {}) or {}
+    if injected.get("sender_name"):
+        return str(injected["sender_name"])
+
+    return None
+
+
+def _safe_completed_tasks_summary(state: dict) -> str:
+    completed_tasks = state.get("completed_tasks", [])
+    if not completed_tasks:
+        return ""
+
+    parts: list[str] = []
+    for task in completed_tasks:
+        task_id = task.get("task_id", "?")
+        assignee = task.get("assignee", "?")
+        result = _normalize_text(task.get("result", ""))
+        parts.append(f"Task {task_id} ({assignee}): {result}")
+    return "\n".join(parts)
+
+
+# ────────────────────────────────────────────────────────
+# DB ACCESS — READ MODE
+# ────────────────────────────────────────────────────────
+
+def _search_messages(session, owner_id: str, query: str, sender_id: str | None = None) -> list[dict[str, Any]]:
+    sql = """
+        SELECT id, sender_id, sender_name, sender_role, direction, content, created_at
+        FROM public.messages
+        WHERE owner_id = :owner_id
+          AND content ILIKE :query
+    """
+    params: dict[str, Any] = {
+        "owner_id": owner_id,
+        "query": f"%{query}%",
+    }
+
+    if sender_id:
+        sql += " AND (sender_id = :sender_id OR sender_id IS NULL)"
+        params["sender_id"] = sender_id
+
+    sql += " ORDER BY created_at DESC LIMIT 8"
+
+    rows = session.execute(text(sql), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def _search_memory_entries(session, owner_id: str, query: str, sender_id: str | None = None) -> list[dict[str, Any]]:
+    sql = """
+        SELECT id, sender_id, sender_name, sender_role, memory_type, content, summary, tags, importance, created_at
+        FROM public.memory_entries
+        WHERE owner_id = :owner_id
+          AND (
+                content ILIKE :query
+                OR summary ILIKE :query
+              )
+    """
+    params: dict[str, Any] = {
+        "owner_id": owner_id,
+        "query": f"%{query}%",
+    }
+
+    if sender_id:
+        sql += " AND (sender_id = :sender_id OR sender_id IS NULL)"
+        params["sender_id"] = sender_id
+
+    sql += " ORDER BY created_at DESC LIMIT 8"
+
+    rows = session.execute(text(sql), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def _format_retrieved_records(messages: list[dict[str, Any]], memories: list[dict[str, Any]]) -> str:
+    payload = {
+        "messages": [
+            {
+                "source": "messages",
+                "id": row.get("id"),
+                "sender_id": row.get("sender_id"),
+                "sender_name": row.get("sender_name"),
+                "sender_role": row.get("sender_role"),
+                "direction": row.get("direction"),
+                "content": row.get("content"),
+                "created_at": row.get("created_at"),
+            }
+            for row in messages
+        ],
+        "memory_entries": [
+            {
+                "source": "memory_entries",
+                "id": row.get("id"),
+                "sender_id": row.get("sender_id"),
+                "sender_name": row.get("sender_name"),
+                "sender_role": row.get("sender_role"),
+                "memory_type": row.get("memory_type"),
+                "summary": row.get("summary"),
+                "content": row.get("content"),
+                "tags": row.get("tags"),
+                "importance": row.get("importance"),
+                "created_at": row.get("created_at"),
+            }
+            for row in memories
+        ],
+    }
+    return _json_dump(payload)
+
+
+# ────────────────────────────────────────────────────────
+# DB ACCESS — UPDATE MODE
+# ────────────────────────────────────────────────────────
+
+def _insert_memory_entries(session, records: list[dict[str, Any]]) -> None:
+    sql = text("""
+        INSERT INTO public.memory_entries (
+            owner_id,
+            sender_id,
+            sender_name,
+            sender_role,
+            memory_type,
+            content,
+            summary,
+            tags,
+            importance,
+            created_at
+        )
+        VALUES (
+            :owner_id,
+            :sender_id,
+            :sender_name,
+            :sender_role,
+            :memory_type,
+            :content,
+            :summary,
+            :tags,
+            :importance,
+            :created_at
+        )
+    """)
+
+    for record in records:
+        session.execute(sql, record)
+
+
+def _insert_memory_proposal(
+    session,
+    *,
+    owner_id: str,
+    sender_id: str | None,
+    sender_name: str | None,
+    sender_role: str | None,
+    proposed_records: list[dict[str, Any]],
+    risk_level: RiskLevel,
+    reason: str,
+) -> str:
+    sql = text("""
+        INSERT INTO public.memory_update_proposals (
+            owner_id,
+            sender_id,
+            sender_name,
+            sender_role,
+            target_table,
+            proposed_content,
+            risk_level,
+            reason,
+            status,
+            created_at
+        )
+        VALUES (
+            :owner_id,
+            :sender_id,
+            :sender_name,
+            :sender_role,
+            'memory_entries',
+            CAST(:proposed_content AS jsonb),
+            :risk_level,
+            :reason,
+            'pending',
+            now()
+        )
+        RETURNING id
+    """)
+
+    row = session.execute(
+        sql,
+        {
+            "owner_id": owner_id,
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "sender_role": sender_role,
+            "proposed_content": json.dumps(proposed_records, default=str),
+            "risk_level": risk_level,
+            "reason": reason,
+        },
+    ).fetchone()
+
+    return str(row[0])
+
+
+# ────────────────────────────────────────────────────────
+# RISK + MEMORY BUILDING
+# ────────────────────────────────────────────────────────
+
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+
+    for item in items:
+        norm = _normalize_text(item)
+        if not norm:
+            continue
+        key = norm.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+
+    return out
+
+
+def _build_memory_records(
+    *,
+    owner_id: str,
+    sender_id: str | None,
+    sender_name: str | None,
+    sender_role: str | None,
+    extracted: MemoryUpdateExtraction,
+) -> list[dict[str, Any]]:
+    now = _utcnow_iso()
+    records: list[dict[str, Any]] = []
+
+    def add_items(items: list[str], memory_type: str, importance: float):
+        for item in _dedupe_keep_order(items):
+            records.append(
+                {
+                    "owner_id": owner_id,
+                    "sender_id": sender_id,
+                    "sender_name": sender_name,
+                    "sender_role": sender_role,
+                    "memory_type": memory_type,
+                    "content": item,
+                    "summary": item[:180],
+                    "tags": [memory_type, sender_role or "unknown"],
+                    "importance": importance,
+                    "created_at": now,
+                }
+            )
+
+    add_items(extracted.preferences, "preference", 0.85)
+    add_items(extracted.constraints, "constraint", 0.90)
+    add_items(extracted.followups, "follow_up", 0.75)
+    add_items(extracted.decisions, "decision", 0.88)
+    add_items(extracted.relationship, "relationship_signal", 0.70)
+
+    return records
+
+
+def _calculate_risk(records: list[dict[str, Any]]) -> RiskLevel:
+    if not records:
+        return "low"
+
+    joined = " ".join(_normalize_text(r.get("content", "")).lower() for r in records)
+
+    high_markers = [
+        "contract",
+        "legal",
+        "confidential",
+        "nda",
+        "price change",
+        "margin",
+        "discount",
+        "payment terms",
+        "bank",
+        "invoice amount",
+    ]
+    medium_markers = [
+        "prefer",
+        "preference",
+        "always",
+        "never",
+        "must",
+        "require",
+        "follow up",
+        "commit",
+        "agreed",
+        "decision",
+    ]
+
+    if any(marker in joined for marker in high_markers):
+        return "high"
+
+    if any(marker in joined for marker in medium_markers):
+        return "medium"
+
+    return "low"
+
+
+# ────────────────────────────────────────────────────────
+# READ MODE
+# ────────────────────────────────────────────────────────
+
+def memory_read_agent(task: SubTask) -> dict:
+    completed_task = dict(task)
+    session = SupabaseSessionLocal()
+
+    try:
+        description = _normalize_text(task.get("description", ""))
+        owner_id = _get_owner_id_from_state(task)
+        sender_id = _get_sender_id_from_state(task)
+
+        if not owner_id:
+            completed_task["status"] = "failed"
+            completed_task["result"] = "Memory read failed: missing owner_id in task/injected_context."
+            return {"completed_tasks": [completed_task]}
+
+        if not description:
+            completed_task["status"] = "failed"
+            completed_task["result"] = "Memory read failed: missing task description."
+            return {"completed_tasks": [completed_task]}
+
+        messages = _search_messages(session, owner_id, description, sender_id)
+        memories = _search_memory_entries(session, owner_id, description, sender_id)
+
+        retrieved_records = _format_retrieved_records(messages, memories)
+
+        llm = get_chat_llm(scope="memory", temperature=0.0)
+        structured_llm = llm.with_structured_output(MemoryReadSummary)
+
+        prompt = MEMORY_READ_PROMPT.format(
+            task_description=description,
+            retrieved_records=retrieved_records,
+        )
+
+        summary = structured_llm.invoke(prompt)
+
+        completed_task["status"] = "completed"
+        completed_task["result"] = _json_dump(summary.model_dump())
+
+        return {"completed_tasks": [completed_task]}
+
+    except Exception as exc:
+        logger.exception("Memory read agent failed")
+        completed_task["status"] = "failed"
+        completed_task["result"] = f"Memory read error: {exc}"
+        return {"completed_tasks": [completed_task]}
+
+    finally:
+        session.close()
+
+
+# ────────────────────────────────────────────────────────
+# UPDATE MODE
+# ────────────────────────────────────────────────────────
+
+def memory_update_agent(state: dict) -> dict:
+    session = SupabaseSessionLocal()
+    try:
+        owner_id = _get_owner_id_from_state(state)
+        sender_id = _get_sender_id_from_state(state)
+        sender_role = _get_sender_role_from_state(state)
+        sender_name = _get_sender_name_from_state(state)
+
+        raw_message = _normalize_text(state.get("raw_message", ""))
+        reply_text = _normalize_text(state.get("reply_text", ""))
+        completed_tasks_summary = _safe_completed_tasks_summary(state)
+
+        if not owner_id:
+            return {
+                "memory_updates": {
+                    "status": "failed",
+                    "error": "Missing owner_id in pipeline state.",
+                    "count": 0,
+                }
+            }
+
+        if not raw_message and not reply_text:
+            return {
+                "memory_updates": {
+                    "status": "completed",
+                    "message": "No interaction content to extract.",
+                    "count": 0,
+                }
+            }
+
+        llm = get_chat_llm(scope="memory", temperature=0.0)
+        structured_llm = llm.with_structured_output(MemoryUpdateExtraction)
+
+        prompt = MEMORY_UPDATE_PROMPT.format(
+            sender_name=sender_name or "Unknown",
+            sender_role=sender_role or "Unknown",
+            sender_id=sender_id or "Unknown",
+            raw_message=raw_message,
+            reply_text=reply_text,
+            completed_tasks_summary=completed_tasks_summary,
+        )
+
+        extracted = structured_llm.invoke(prompt)
+
+        records = _build_memory_records(
+            owner_id=owner_id,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            sender_role=sender_role,
+            extracted=extracted,
+        )
+
+        if not records:
+            return {
+                "memory_updates": {
+                    "status": "completed",
+                    "message": "No durable memory extracted.",
+                    "count": 0,
+                    "risk_level": "low",
+                    "persisted_to": None,
+                }
+            }
+
+        risk_level = _calculate_risk(records)
+
+        if risk_level == "low":
+            _insert_memory_entries(session, records)
+            session.commit()
+
+            return {
+                "memory_updates": {
+                    "status": "completed",
+                    "count": len(records),
+                    "risk_level": risk_level,
+                    "persisted_to": "memory_entries",
+                    "records": records,
+                }
+            }
+
+        proposal_id = _insert_memory_proposal(
+            session,
+            owner_id=owner_id,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            sender_role=sender_role,
+            proposed_records=records,
+            risk_level=risk_level,
+            reason="Extracted durable memory requires owner approval before insertion.",
+        )
+        session.commit()
+
+        return {
+            "memory_updates": {
+                "status": "completed",
+                "count": len(records),
+                "risk_level": risk_level,
+                "persisted_to": "memory_update_proposals",
+                "proposal_id": proposal_id,
+                "records": records,
+            }
+        }
+
+    except Exception as exc:
+        session.rollback()
+        logger.exception("Memory update agent failed")
+        return {
+            "memory_updates": {
+                "status": "failed",
+                "error": str(exc),
+                "count": 0,
+            }
+        }
+
+    finally:
+        session.close()
 
 def memory_agent_node(state: dict) -> dict:
     """
-    Dual-purpose memory agent.
-
-    If state contains 'task_id' → READ MODE (SubTask from fan-out)
-    If state contains 'raw_message' → UPDATE MODE (full PipelineState)
-
-    Functions needed (implement later):
     READ MODE:
-    - _search_history(query, sender_id) -> list[dict]
-    - _summarize_history(raw_results) -> str
+    - called from orchestrator fan-out with a SubTask-like dict
+    - detects by presence of task_id
 
     UPDATE MODE:
-    - _extract_preferences(interaction_data) -> list[dict]
-    - _extract_followups(interaction_data) -> list[dict]
-    - _save_to_memory_db(records) -> None
+    - called at end of pipeline with full state
     """
     if "task_id" in state:
-        # ── READ MODE (from Orchestrator fan-out) ──
-        completed_task = state.copy()
-        completed_task["status"] = "completed"
-        completed_task["result"] = f"(Stub) Memory retrieved for: {state.get('description')}"
-        return {"completed_tasks": [completed_task]}
+        return memory_read_agent(state)
 
-    else:
-        # ── UPDATE MODE (post-send, end of pipeline) ──
-        # TODO: Extract and save durable memory
-        return {
-            "memory_updates": [{"stub": "Saved new preferences extracted from interaction."}]
-        }
+    return memory_update_agent(state)
