@@ -9,7 +9,7 @@ All functions accept a SQLAlchemy Session and return lists of dicts.
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.db.orm_models import (
+from backend.db.models import (
     Product, Customer, Order,
     Supplier, SupplyContract,
     Partner, PartnerAgreement, PartnerProduct,
