@@ -7,11 +7,9 @@ export default async function PendingApprovalsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-zinc-900">
-          Pending Approvals
-        </h1>
+        <h1 className="text-3xl font-semibold text-zinc-900">Pending Approvals</h1>
         <p className="mt-2 text-zinc-500">
-          Review changes that require owner confirmation.
+          Review items that require owner confirmation.
         </p>
       </div>
 

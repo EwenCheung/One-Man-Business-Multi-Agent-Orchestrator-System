@@ -68,13 +68,32 @@ export async function getPartners() {
   return data ?? [];
 }
 
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+
+async function getAuthenticatedClient() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    redirect("/login");
+  }
+
+  return { supabase, user };
+}
+
 export async function getPendingApprovals() {
   const { supabase, user } = await getAuthenticatedClient();
 
   const { data, error } = await supabase
     .from("pending_approvals")
-    .select("*")
+    .select("id, title, sender, preview, proposal_type, risk_level, status, proposal_id")
     .eq("owner_id", user.id)
+    .eq("status", "pending")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
