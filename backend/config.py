@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "postgres"
     DATABASE_URL: str = "sqlite:///backend/db/local.db"
-    SUPABASE_DB_URL: str
+    SUPABASE_DB_URL: str = ""
         
     # ── LLM ───────────────────────────────────────────────────
     AI_PROVIDER: str = "auto"  # auto | openai | gemini
@@ -48,8 +48,11 @@ class Settings(BaseSettings):
     POLICY_TOP_K: int = 5            # chunks retrieved from pgvector before reranking
     POLICY_TOP_N: int = 3            # chunks passed to LLM after reranking
 
+    # ── Retrieval Agent RAG ───────────────────────────────────
+    BUSINESS_TOP_K: int = 5          # rows returned from business data semantic search
+
     # ── External Research ─────────────────────────────────────
-    TAVILY_API_KEY: str
+    TAVILY_API_KEY: str = ""
 
     # ── Redis / Cache ─────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379"
