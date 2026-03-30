@@ -73,6 +73,7 @@ def search_policy_chunks(
             "chunk_text": chunk.chunk_text,
             "source_file": chunk.source_file,
             "page_number": chunk.page_number,
+            "subheading": chunk.subheading,
             "category": chunk.category,
             "hard_constraint": chunk.hard_constraint,
             "similarity_score": round(1.0 - distance, 4),

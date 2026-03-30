@@ -13,6 +13,7 @@ SQLAlchemy ORM models for all persistent tables.
 """
 
 from datetime import datetime, date
+from typing import Optional
 from decimal import Decimal
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -143,6 +144,7 @@ class PolicyChunk(Base):
     page_number: Mapped[int] = mapped_column(Integer)
     chunk_index: Mapped[int] = mapped_column(Integer)
     chunk_text: Mapped[str] = mapped_column(Text)
+    subheading: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=True)
     hard_constraint: Mapped[bool] = mapped_column(Boolean, default=False)
     embedding = mapped_column(Vector(1536), nullable=False)
