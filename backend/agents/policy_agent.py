@@ -157,6 +157,7 @@ def _evaluate(
     if chunks:
         excerpts = "\n\n---\n\n".join(
             f"[{i + 1}] (source: {c['source_file']}, page {c['page_number']},"
+            f" section: {c.get('subheading') or 'N/A'},"
             f" hard_constraint={c['hard_constraint']})\n{c['chunk_text']}"
             for i, c in enumerate(chunks)
         )
