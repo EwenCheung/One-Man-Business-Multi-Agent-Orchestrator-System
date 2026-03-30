@@ -6,9 +6,11 @@ matching the Role-Based Access rules defined in README.md.
 All functions accept a SQLAlchemy Session and return lists of dicts.
 """
 
+from langchain_openai import OpenAIEmbeddings
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.config import settings
 from backend.db.models import (
     Product, Customer, Order,
     Supplier, SupplyContract,
@@ -395,4 +397,224 @@ def get_partner_products(session: Session, partner_id: int) -> list[dict]:
             "agreement_type": r.agreement_type,
         }
         for r in rows
+    ]
+
+
+# ─── SEMANTIC SEARCH TOOLS ────────────────────────────────────────────────────
+
+def _embed_query(query: str) -> list[float]:
+    """Embed a query string using the configured embedding model."""
+    embedder = OpenAIEmbeddings(
+        model=settings.EMBEDDING_MODEL,
+        api_key=settings.OPENAI_API_KEY,
+    )
+    return embedder.embed_query(query)
+
+
+def semantic_search_product_catalog(
+    session: Session,
+    query: str,
+    top_k: int | None = None,
+) -> list[dict]:
+    """Find products semantically similar to the query. Returns catalog fields (no cost price)."""
+    k = top_k or settings.BUSINESS_TOP_K
+    query_vector = _embed_query(query)
+    distance_expr = Product.description_embedding.cosine_distance(query_vector)
+    rows = (
+        session.query(Product, distance_expr.label("distance"))
+        .filter(Product.description_embedding.isnot(None))
+        .order_by(distance_expr)
+        .limit(k)
+        .all()
+    )
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "selling_price": float(p.selling_price),
+            "stock_quantity": p.stock_quantity,
+            "link": p.link,
+            "category": p.category,
+            "similarity_score": round(1.0 - distance, 4),
+        }
+        for p, distance in rows
+    ]
+
+
+def semantic_search_full_product_table(
+    session: Session,
+    query: str,
+    top_k: int | None = None,
+) -> list[dict]:
+    """Find products semantically similar to the query. Returns full table including cost price (investor only)."""
+    k = top_k or settings.BUSINESS_TOP_K
+    query_vector = _embed_query(query)
+    distance_expr = Product.description_embedding.cosine_distance(query_vector)
+    rows = (
+        session.query(Product, distance_expr.label("distance"))
+        .filter(Product.description_embedding.isnot(None))
+        .order_by(distance_expr)
+        .limit(k)
+        .all()
+    )
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "selling_price": float(p.selling_price),
+            "cost_price": float(p.cost_price),
+            "margin": float(p.selling_price - p.cost_price),
+            "stock_quantity": p.stock_quantity,
+            "category": p.category,
+            "link": p.link,
+            "similarity_score": round(1.0 - distance, 4),
+        }
+        for p, distance in rows
+    ]
+
+
+def semantic_search_supplier_contracts(
+    session: Session,
+    query: str,
+    supplier_id: int,
+    top_k: int | None = None,
+) -> list[dict]:
+    """Find supply contracts semantically similar to the query, scoped to a supplier."""
+    k = top_k or settings.BUSINESS_TOP_K
+    query_vector = _embed_query(query)
+    distance_expr = SupplyContract.notes_embedding.cosine_distance(query_vector)
+    rows = (
+        session.query(SupplyContract, Product, distance_expr.label("distance"))
+        .join(Product, SupplyContract.product_id == Product.id)
+        .filter(
+            SupplyContract.supplier_id == supplier_id,
+            SupplyContract.notes_embedding.isnot(None),
+        )
+        .order_by(distance_expr)
+        .limit(k)
+        .all()
+    )
+    return [
+        {
+            "contract_id": c.id,
+            "product_name": p.name,
+            "product_description": p.description,
+            "supply_price": float(c.supply_price),
+            "stock_quantity": p.stock_quantity,
+            "total_order_qty": c.total_order_qty,
+            "lead_time_days": c.lead_time_days,
+            "contract_start": str(c.contract_start),
+            "contract_end": str(c.contract_end) if c.contract_end else None,
+            "is_active": c.is_active,
+            "notes": c.notes,
+            "similarity_score": round(1.0 - distance, 4),
+        }
+        for c, p, distance in rows
+    ]
+
+
+def semantic_search_supply_overview(
+    session: Session,
+    query: str,
+    top_k: int | None = None,
+) -> list[dict]:
+    """Find supply contracts semantically similar to the query. Returns full supply overview (investor only)."""
+    k = top_k or settings.BUSINESS_TOP_K
+    query_vector = _embed_query(query)
+    distance_expr = SupplyContract.notes_embedding.cosine_distance(query_vector)
+    rows = (
+        session.query(SupplyContract, Supplier, Product, distance_expr.label("distance"))
+        .join(Supplier, SupplyContract.supplier_id == Supplier.id)
+        .join(Product, SupplyContract.product_id == Product.id)
+        .filter(SupplyContract.notes_embedding.isnot(None))
+        .order_by(distance_expr)
+        .limit(k)
+        .all()
+    )
+    return [
+        {
+            "contract_id": c.id,
+            "supplier_name": s.name,
+            "product_name": p.name,
+            "supply_price": float(c.supply_price),
+            "selling_price": float(p.selling_price),
+            "total_order_qty": c.total_order_qty,
+            "lead_time_days": c.lead_time_days,
+            "contract_start": str(c.contract_start),
+            "contract_end": str(c.contract_end) if c.contract_end else None,
+            "is_active": c.is_active,
+            "similarity_score": round(1.0 - distance, 4),
+        }
+        for c, s, p, distance in rows
+    ]
+
+
+def semantic_search_all_partner_agreements(
+    session: Session,
+    query: str,
+    top_k: int | None = None,
+) -> list[dict]:
+    """Find partner agreements semantically similar to the query across all partners (investor only)."""
+    k = top_k or settings.BUSINESS_TOP_K
+    query_vector = _embed_query(query)
+    distance_expr = PartnerAgreement.description_embedding.cosine_distance(query_vector)
+    rows = (
+        session.query(PartnerAgreement, Partner, distance_expr.label("distance"))
+        .join(Partner, PartnerAgreement.partner_id == Partner.id)
+        .filter(PartnerAgreement.description_embedding.isnot(None))
+        .order_by(distance_expr)
+        .limit(k)
+        .all()
+    )
+    return [
+        {
+            "agreement_id": a.id,
+            "partner_name": prt.name,
+            "description": a.description,
+            "agreement_type": a.agreement_type,
+            "revenue_share_pct": float(a.revenue_share_pct) if a.revenue_share_pct else None,
+            "start_date": str(a.start_date),
+            "end_date": str(a.end_date) if a.end_date else None,
+            "is_active": a.is_active,
+            "similarity_score": round(1.0 - distance, 4),
+        }
+        for a, prt, distance in rows
+    ]
+
+
+def semantic_search_partner_agreements(
+    session: Session,
+    query: str,
+    partner_id: int,
+    top_k: int | None = None,
+) -> list[dict]:
+    """Find partner agreements semantically similar to the query, scoped to a partner."""
+    k = top_k or settings.BUSINESS_TOP_K
+    query_vector = _embed_query(query)
+    distance_expr = PartnerAgreement.description_embedding.cosine_distance(query_vector)
+    rows = (
+        session.query(PartnerAgreement, distance_expr.label("distance"))
+        .filter(
+            PartnerAgreement.partner_id == partner_id,
+            PartnerAgreement.description_embedding.isnot(None),
+        )
+        .order_by(distance_expr)
+        .limit(k)
+        .all()
+    )
+    return [
+        {
+            "agreement_id": a.id,
+            "description": a.description,
+            "agreement_type": a.agreement_type,
+            "revenue_share_pct": float(a.revenue_share_pct) if a.revenue_share_pct else None,
+            "start_date": str(a.start_date),
+            "end_date": str(a.end_date) if a.end_date else None,
+            "is_active": a.is_active,
+            "notes": a.notes,
+            "similarity_score": round(1.0 - distance, 4),
+        }
+        for a, distance in rows
     ]
