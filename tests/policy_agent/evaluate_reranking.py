@@ -1,16 +1,17 @@
 """
-Test for Stage 4 — Reranking Quality (LLM Reranker)
+Test for Stage 4 — Reranking Quality (Cross-Encoder Reranker)
 
 For every GT entry with labeled chunk IDs:
     1. Retrieve top-K via pgvector (search_policy_chunks)         → "before" list
-    2. Rerank top-K with the LLM reranker (rerank_chunks)         → "after" list
+    2. Rerank top-K with the cross-encoder (rerank_chunks)        → "after" list
     3. Evaluate Precision@N, Recall@N, MRR before vs. after reranking
     4. Compute Spearman ρ between vector order and reranked order (rank displacement)
     5. Measure per-step latency (search vs. rerank)
 
 Optional consistency check:
-    Runs the reranker N_CONSISTENCY_RUNS times on a small subset of queries at
-    temperature=0 and checks whether the output is identical each time.
+    Runs the reranker N_CONSISTENCY_RUNS times on a small subset of queries and
+    checks whether the output is identical each time.  Cross-encoders are
+    deterministic, so this should always be 100%.
 
 Metrics:
     Precision@N improvement     — P@N_after − P@N_before  (N = POLICY_TOP_N)
@@ -19,7 +20,7 @@ Metrics:
     Rank displacement (ρ)       — Spearman correlation between vector rank and reranker rank
                                   ρ≈1 → reranker preserves order (not reranking)
                                   ρ≈0 → reranker significantly reshuffles
-    Reranking consistency       — % of repeated calls (temp=0) that produce identical output
+    Reranking consistency       — % of repeated calls that produce identical output
     Latency cost                — ms/query for search step and rerank step separately
 
 Output:
@@ -35,7 +36,7 @@ Prerequisites:
     2. Policies ingested
     3. Eval dependencies installed (uv sync --extra eval)
     4. Ground truth dataset present
-    5. OPENAI_API_KEY set in .env  (embed + LLM calls per query)
+    5. OPENAI_API_KEY set in .env  (embedding calls per query)
 """
 
 import argparse
@@ -345,7 +346,7 @@ def _make_charts(per_query: list[dict], overall: dict, per_category: dict) -> No
     fig.suptitle(
         f"Stage 4 — Reranking Quality  |  "
         f"K={settings.POLICY_TOP_K} → N={settings.POLICY_TOP_N}  |  "
-        f"model={settings.OPENAI_MODEL}",
+        f"model={settings.RERANKER_MODEL}",
         fontsize=11, y=1.01,
     )
     plt.tight_layout()
@@ -370,7 +371,7 @@ def _print_summary(
     print(SEP)
     print(f"  Queries evaluated:  {n_eval}  (skipped {n_skipped})")
     print(f"  Config:  K={settings.POLICY_TOP_K} → N={settings.POLICY_TOP_N}  "
-          f"model={settings.OPENAI_MODEL}")
+          f"model={settings.RERANKER_MODEL}")
     print()
 
     N = settings.POLICY_TOP_N
@@ -563,7 +564,7 @@ def evaluate_reranking(consistency_runs: int = 0) -> dict:
             "POLICY_TOP_K": top_k,
             "POLICY_TOP_N": top_n,
             "EMBEDDING_MODEL": settings.EMBEDDING_MODEL,
-            "OPENAI_MODEL": settings.OPENAI_MODEL,
+            "RERANKER_MODEL": settings.RERANKER_MODEL,
         },
         "per_query": per_query,
     }

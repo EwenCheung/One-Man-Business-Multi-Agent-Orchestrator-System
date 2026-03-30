@@ -8,21 +8,30 @@ Two-stage retrieval pipeline for the policy agent:
     policy_chunks, returning the top-K most similar chunks.
 
   Stage 2 — rerank_chunks
-    Passes the top-K candidates and the original query to gpt-4o-mini.
-    The LLM acts as a lightweight cross-encoder, scoring each chunk for
-    contextual relevance and returning the top-N indices in ranked order.
-    This corrects cases where embedding similarity retrieves topically close
-    but contextually less useful chunks.
+    Passes the top-K candidates and the original query to a local
+    cross-encoder (mixedbread-ai/mxbai-rerank-base-v1).  Each (query, chunk)
+    pair is scored directly, then chunks are sorted by score and the top-N
+    are returned.  This corrects cases where embedding similarity retrieves
+    topically close but contextually less useful chunks.
 """
 
-from pydantic import BaseModel
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import OpenAIEmbeddings
+from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.db.models import PolicyChunk
-from backend.utils.llm_provider import get_chat_llm
+
+
+# ─── Stage 2 model — loaded once at import time ───────────────────────────────
+
+def _load_reranker() -> CrossEncoder:
+    if settings.HF_TOKEN:
+        from huggingface_hub import login
+        login(token=settings.HF_TOKEN)
+    return CrossEncoder(settings.RERANKER_MODEL)
+
+_reranker = _load_reranker()
 
 
 # ─── Stage 1: Semantic search ─────────────────────────────────────────────────
@@ -81,11 +90,7 @@ def search_policy_chunks(
     return results
 
 
-# ─── Stage 2: LLM reranker ────────────────────────────────────────────────────
-
-class _RerankResult(BaseModel):
-    ranked_indices: list[int]  # indices into the input chunks list, most relevant first
-
+# ─── Stage 2: Cross-encoder reranker ─────────────────────────────────────────
 
 def rerank_chunks(
     query: str,
@@ -93,10 +98,10 @@ def rerank_chunks(
     top_n: int | None = None,
 ) -> list[dict]:
     """
-    Rerank retrieved chunks using another llm as a lightweight cross-encoder.
+    Rerank retrieved chunks using a local cross-encoder model.
 
-    The model receives the original query and all candidate chunks with numeric
-    labels, then returns the indices of the most relevant ones in ranked order.
+    Each (query, chunk_text) pair is scored directly by the model.  Chunks are
+    then sorted by score descending and the top-N are returned.
 
     Args:
         query:   The original natural language policy question.
@@ -104,7 +109,7 @@ def rerank_chunks(
         top_n:   How many chunks to keep after reranking (defaults to settings.POLICY_TOP_N).
 
     Returns:
-        The top-N chunks from the input list, reordered by LLM relevance judgement.
+        The top-N chunks from the input list, reordered by cross-encoder score.
         Falls through to the original list unchanged if it is already within top_n.
     """
     n = top_n or settings.POLICY_TOP_N
@@ -115,28 +120,8 @@ def rerank_chunks(
     if len(chunks) <= n:
         return chunks
 
-    llm = get_chat_llm(scope="policy", temperature=0.0)
-    structured_llm = llm.with_structured_output(_RerankResult)
+    pairs = [(query, c["chunk_text"]) for c in chunks]
+    scores = _reranker.predict(pairs)
 
-    numbered_chunks = "\n\n".join(
-        f"[{i}]\n{c['chunk_text']}" for i, c in enumerate(chunks)
-    )
-
-    messages = [
-        SystemMessage(content=(
-            "You are a relevance ranking assistant for a business policy system. "
-            "Given a question and a numbered list of policy document excerpts, "
-            "identify which excerpts most directly and completely answer the question. "
-            "Return only the indices of the most relevant excerpts, ordered from most "
-            "to least relevant. Omit any excerpt that does not help answer the question."
-        )),
-        HumanMessage(content=(
-            f"Question: {query}\n\n"
-            f"Policy excerpts:\n{numbered_chunks}\n\n"
-            f"Return the {n} most relevant indices in order of relevance."
-        )),
-    ]
-
-    result: _RerankResult = structured_llm.invoke(messages)
-    ranked = result.ranked_indices[:n]
-    return [chunks[i] for i in ranked if i < len(chunks)]
+    ranked = sorted(range(len(chunks)), key=lambda i: scores[i], reverse=True)
+    return [chunks[i] for i in ranked[:n]]
