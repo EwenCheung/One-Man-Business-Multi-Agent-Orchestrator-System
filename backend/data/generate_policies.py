@@ -21,7 +21,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from backend.config import settings
-from backend.db.policy_metadata import POLICY_SPECS as _BASE_SPECS
+from backend.data.policy_metadata import POLICY_SPECS as _BASE_SPECS
 
 # ─── Output directory ────────────────────────────────────────────────────────
 
