@@ -46,7 +46,9 @@ class Settings(BaseSettings):
     POLICY_CHUNK_SIZE: int = 2000    # characters per chunk (~500 tokens)
     POLICY_CHUNK_OVERLAP: int = 200  # overlap between consecutive chunks
     POLICY_TOP_K: int = 5            # chunks retrieved from pgvector before reranking
-    POLICY_TOP_N: int = 3            # chunks passed to LLM after reranking
+    POLICY_TOP_N: int = 3            # chunks kept after reranking
+    RERANKER_MODEL: str = "mixedbread-ai/mxbai-rerank-base-v1"
+    HF_TOKEN: str = ""               # optional — avoids HuggingFace Hub rate limits
 
     # ── External Research ─────────────────────────────────────
     TAVILY_API_KEY: str

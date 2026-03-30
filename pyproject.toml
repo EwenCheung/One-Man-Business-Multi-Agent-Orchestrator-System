@@ -25,6 +25,7 @@ dependencies = [
     "pypdf>=4.0.0",
     "langchain-text-splitters>=1.1.1",
     "docling>=2.82.0",
+    "sentence-transformers>=3.0.0",
 ]
 
 [project.optional-dependencies]
