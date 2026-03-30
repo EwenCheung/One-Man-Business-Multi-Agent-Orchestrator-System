@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "postgres"
     DATABASE_URL: str = "sqlite:///backend/db/local.db"
-    SUPABASE_DB_URL: str
+    SUPABASE_DB_URL: str = ""
         
     # ── LLM ───────────────────────────────────────────────────
     AI_PROVIDER: str = "auto"  # auto | openai | gemini
@@ -50,8 +50,11 @@ class Settings(BaseSettings):
     RERANKER_MODEL: str = "mixedbread-ai/mxbai-rerank-base-v1"
     HF_TOKEN: str = ""               # optional — avoids HuggingFace Hub rate limits
 
+    # ── Retrieval Agent RAG ───────────────────────────────────
+    BUSINESS_TOP_K: int = 5          # rows returned from business data semantic search
+
     # ── External Research ─────────────────────────────────────
-    TAVILY_API_KEY: str
+    TAVILY_API_KEY: str = ""
 
     # ── Redis / Cache ─────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379"

@@ -7,9 +7,11 @@ They verify:
     - Column filtering works (customer can't see cost_price)
     - Row scoping works (customer A can't see customer B's orders)
     - Tool functions return expected data shapes
+    - Semantic search tools return correctly filtered shapes
 """
 
 import pytest
+from unittest.mock import patch
 from backend.db.engine import SessionLocal
 from backend.tools.retrieval_tools import (
     get_product_catalog,
@@ -27,8 +29,17 @@ from backend.tools.retrieval_tools import (
     get_partner_profile,
     get_partner_agreements,
     get_partner_products,
+    semantic_search_product_catalog,
+    semantic_search_supplier_contracts,
+    semantic_search_full_product_table,
+    semantic_search_supply_overview,
+    semantic_search_all_partner_agreements,
+    semantic_search_partner_agreements,
 )
 from backend.tools.role_permissions import get_tools_for_role, ROLE_TOOL_MAP
+
+# A dummy 1536-dim zero vector used to mock embedding calls without hitting OpenAI.
+_ZERO_VECTOR = [0.0] * 1536
 
 
 @pytest.fixture
@@ -41,32 +52,56 @@ def session():
 # ─── Role Permission Tests ───────────────────────────────────────
 
 class TestRolePermissions:
-    def test_customer_has_exactly_3_tools(self):
+    def test_customer_has_exactly_4_tools(self):
         tools = get_tools_for_role("customer")
-        assert len(tools) == 3
-        names = {fn.__name__ for fn in tools}
-        assert names == {"get_product_catalog", "get_customer_orders", "get_customer_profile"}
-
-    def test_supplier_has_exactly_3_tools(self):
-        tools = get_tools_for_role("supplier")
-        assert len(tools) == 3
-        names = {fn.__name__ for fn in tools}
-        assert names == {"get_supplier_profile", "get_supplier_contracts", "get_product_stock"}
-
-    def test_investor_has_exactly_6_tools(self):
-        tools = get_tools_for_role("investor")
-        assert len(tools) == 6
+        assert len(tools) == 4
         names = {fn.__name__ for fn in tools}
         assert names == {
-            "get_full_product_table", "get_all_orders", "get_customer_count",
-            "get_supply_overview", "get_product_roi", "get_sales_stats",
+            "get_product_catalog",
+            "get_customer_orders",
+            "get_customer_profile",
+            "semantic_search_product_catalog",
         }
 
-    def test_partner_has_exactly_3_tools(self):
-        tools = get_tools_for_role("partner")
-        assert len(tools) == 3
+    def test_supplier_has_exactly_5_tools(self):
+        tools = get_tools_for_role("supplier")
+        assert len(tools) == 5
         names = {fn.__name__ for fn in tools}
-        assert names == {"get_partner_profile", "get_partner_agreements", "get_partner_products"}
+        assert names == {
+            "get_supplier_profile",
+            "get_supplier_contracts",
+            "get_product_stock",
+            "semantic_search_product_catalog",
+            "semantic_search_supplier_contracts",
+        }
+
+    def test_investor_has_exactly_9_tools(self):
+        tools = get_tools_for_role("investor")
+        assert len(tools) == 9
+        names = {fn.__name__ for fn in tools}
+        assert names == {
+            "get_full_product_table",
+            "get_all_orders",
+            "get_customer_count",
+            "get_supply_overview",
+            "get_product_roi",
+            "get_sales_stats",
+            "semantic_search_full_product_table",
+            "semantic_search_supply_overview",
+            "semantic_search_all_partner_agreements",
+        }
+
+    def test_partner_has_exactly_5_tools(self):
+        tools = get_tools_for_role("partner")
+        assert len(tools) == 5
+        names = {fn.__name__ for fn in tools}
+        assert names == {
+            "get_partner_profile",
+            "get_partner_agreements",
+            "get_partner_products",
+            "semantic_search_product_catalog",
+            "semantic_search_partner_agreements",
+        }
 
     def test_unknown_role_raises(self):
         with pytest.raises(ValueError, match="Unknown role"):
@@ -74,13 +109,15 @@ class TestRolePermissions:
 
     def test_role_is_case_insensitive(self):
         tools = get_tools_for_role("CUSTOMER")
-        assert len(tools) == 3
+        assert len(tools) == 4
 
     def test_customer_cannot_access_investor_tools(self):
         customer_names = {fn.__name__ for fn in get_tools_for_role("customer")}
         assert "get_full_product_table" not in customer_names
         assert "get_product_roi" not in customer_names
         assert "get_all_orders" not in customer_names
+        assert "semantic_search_full_product_table" not in customer_names
+        assert "semantic_search_supply_overview" not in customer_names
 
     def test_supplier_cannot_access_customer_tools(self):
         supplier_names = {fn.__name__ for fn in get_tools_for_role("supplier")}
@@ -91,6 +128,7 @@ class TestRolePermissions:
         partner_names = {fn.__name__ for fn in get_tools_for_role("partner")}
         assert "get_supplier_contracts" not in partner_names
         assert "get_supplier_profile" not in partner_names
+        assert "semantic_search_supplier_contracts" not in partner_names
 
 
 # ─── Column Filtering Tests ──────────────────────────────────────
@@ -138,10 +176,8 @@ class TestRowScoping:
     def test_customer_orders_scoped_to_customer(self, session):
         orders_c1 = get_customer_orders(session, 1)
         orders_c2 = get_customer_orders(session, 2)
-        # Both should return lists (possibly empty if no orders for that customer)
         assert isinstance(orders_c1, list)
         assert isinstance(orders_c2, list)
-        # If both have orders, they should be different
         if orders_c1 and orders_c2:
             c1_ids = {o["order_id"] for o in orders_c1}
             c2_ids = {o["order_id"] for o in orders_c2}
@@ -224,3 +260,88 @@ class TestDataShapes:
             "contract_start", "contract_end", "is_active",
         }
         assert set(rows[0].keys()) == expected_keys
+
+
+# ─── Semantic Search Tests ───────────────────────────────────────
+
+class TestSemanticSearch:
+    """
+    Semantic search tests mock _embed_query to avoid OpenAI API calls.
+    If no embeddings have been seeded (ingest_business_data not yet run),
+    the queries return empty lists — the shape assertions are guarded.
+    """
+
+    def test_semantic_search_product_catalog_returns_list(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result = semantic_search_product_catalog(session, "wireless headphones")
+        assert isinstance(result, list)
+
+    def test_semantic_search_product_catalog_excludes_cost_price(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result = semantic_search_product_catalog(session, "electronics")
+        if result:
+            for row in result:
+                assert "cost_price" not in row
+                assert "selling_price" in row
+                assert "similarity_score" in row
+
+    def test_semantic_search_full_product_table_includes_cost_price(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result = semantic_search_full_product_table(session, "electronics")
+        assert isinstance(result, list)
+        if result:
+            for row in result:
+                assert "cost_price" in row
+                assert "selling_price" in row
+                assert "similarity_score" in row
+
+    def test_semantic_search_supplier_contracts_scoped_to_supplier(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result_s1 = semantic_search_supplier_contracts(session, "fast delivery", supplier_id=1)
+            result_s2 = semantic_search_supplier_contracts(session, "fast delivery", supplier_id=2)
+        assert isinstance(result_s1, list)
+        assert isinstance(result_s2, list)
+        if result_s1 and result_s2:
+            s1_ids = {r["contract_id"] for r in result_s1}
+            s2_ids = {r["contract_id"] for r in result_s2}
+            assert s1_ids.isdisjoint(s2_ids), "Supplier 1 and 2 should not share contract IDs"
+
+    def test_semantic_search_supply_overview_returns_list(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result = semantic_search_supply_overview(session, "active contracts")
+        assert isinstance(result, list)
+        if result:
+            row = result[0]
+            assert "supplier_name" in row
+            assert "product_name" in row
+            assert "supply_price" in row
+            assert "selling_price" in row
+            assert "similarity_score" in row
+
+    def test_semantic_search_all_partner_agreements_returns_list(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result = semantic_search_all_partner_agreements(session, "revenue share")
+        assert isinstance(result, list)
+        if result:
+            row = result[0]
+            assert "agreement_id" in row
+            assert "partner_name" in row
+            assert "agreement_type" in row
+            assert "similarity_score" in row
+
+    def test_semantic_search_partner_agreements_scoped_to_partner(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result_p1 = semantic_search_partner_agreements(session, "distribution", partner_id=1)
+            result_p2 = semantic_search_partner_agreements(session, "distribution", partner_id=2)
+        assert isinstance(result_p1, list)
+        assert isinstance(result_p2, list)
+        if result_p1 and result_p2:
+            p1_ids = {r["agreement_id"] for r in result_p1}
+            p2_ids = {r["agreement_id"] for r in result_p2}
+            assert p1_ids.isdisjoint(p2_ids), "Partner 1 and 2 should not share agreement IDs"
+
+    def test_semantic_search_respects_top_k(self, session):
+        with patch("backend.tools.retrieval_tools._embed_query", return_value=_ZERO_VECTOR):
+            result = semantic_search_product_catalog(session, "gadget", top_k=3)
+        assert isinstance(result, list)
+        assert len(result) <= 3

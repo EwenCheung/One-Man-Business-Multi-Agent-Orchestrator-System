@@ -51,9 +51,20 @@ class Product(Base):
     link: Mapped[str] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    description_embedding = mapped_column(Vector(1536), nullable=True)
     orders: Mapped[list["Order"]] = relationship(back_populates="product")
     supply_contracts: Mapped[list["SupplyContract"]] = relationship(back_populates="product")
     partner_products: Mapped[list["PartnerProduct"]] = relationship(back_populates="product")
+
+    __table_args__ = (
+        Index(
+            "ix_products_description_embedding",
+            "description_embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"description_embedding": "vector_cosine_ops"},
+        ),
+    )
 
 class Order(Base):
     __tablename__ = "orders"
@@ -93,8 +104,19 @@ class SupplyContract(Base):
     contract_end: Mapped[date] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
+    notes_embedding = mapped_column(Vector(1536), nullable=True)
     supplier: Mapped["Supplier"] = relationship(back_populates="supply_contracts")
     product: Mapped["Product"] = relationship(back_populates="supply_contracts")
+
+    __table_args__ = (
+        Index(
+            "ix_supply_contracts_notes_embedding",
+            "notes_embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"notes_embedding": "vector_cosine_ops"},
+        ),
+    )
 
 # ─── PARTNER TABLES ───
 
@@ -120,8 +142,19 @@ class PartnerAgreement(Base):
     end_date: Mapped[date] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
+    description_embedding = mapped_column(Vector(1536), nullable=True)
     partner: Mapped["Partner"] = relationship(back_populates="agreements")
     partner_products: Mapped[list["PartnerProduct"]] = relationship(back_populates="agreement")
+
+    __table_args__ = (
+        Index(
+            "ix_partner_agreements_description_embedding",
+            "description_embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"description_embedding": "vector_cosine_ops"},
+        ),
+    )
 
 class PartnerProduct(Base):
     __tablename__ = "partner_products"
