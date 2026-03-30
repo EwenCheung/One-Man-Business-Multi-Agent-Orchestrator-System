@@ -25,15 +25,45 @@ from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.db.engine import SessionLocal
-from backend.db.policy_metadata import POLICY_SPECS
 from backend.db.models import PolicyChunk
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
 POLICIES_DIR = Path(__file__).parent.parent / "data" / "policies"
+_SIDECAR_PATH = POLICIES_DIR / "policies_metadata.json"
 
-# filename → {category, hard_constraint} — sourced from the generator spec list
-_SPEC_BY_FILE: dict[str, dict] = {s["filename"]: s for s in POLICY_SPECS}
+# Suffixes stripped right-to-left to derive a category from a filename.
+# e.g. partner_agreement_policy.pdf → partner_agreement → partner
+_STRIP_SUFFIXES = ("_policy", "_terms", "_agreement")
+
+
+def _derive_category(filename: str) -> str:
+    stem = Path(filename).stem
+    for suffix in _STRIP_SUFFIXES:
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+    return stem
+
+
+def _load_sidecar() -> dict[str, dict]:
+    """
+    Load optional per-file metadata overrides from policies_metadata.json.
+
+    The file lives alongside the PDFs in data/policies/ and is keyed by
+    filename.  Supported fields: category (str), hard_constraint (bool).
+
+    Example:
+        {
+            "returns_policy.pdf":      { "hard_constraint": true },
+            "pricing_policy.pdf":      { "hard_constraint": true },
+            "data_privacy_policy.pdf": { "hard_constraint": true }
+        }
+    """
+    if not _SIDECAR_PATH.exists():
+        return {}
+    import json
+    with open(_SIDECAR_PATH) as f:
+        return json.load(f)
 
 
 # ─── PDF → Markdown conversion ───────────────────────────────────────────────
@@ -117,6 +147,7 @@ def _ingest_file(
     pdf_path: Path,
     embedder: OpenAIEmbeddings,
     force: bool,
+    sidecar: dict[str, dict],
 ) -> int:
     """
     Ingest one PDF into policy_chunks.
@@ -131,9 +162,9 @@ def _ingest_file(
     Returns the number of chunks stored (0 if skipped).
     """
     filename = pdf_path.name
-    spec = _SPEC_BY_FILE.get(filename, {})
-    category = spec.get("category")
-    hard_constraint = spec.get("hard_constraint", False)
+    overrides = sidecar.get(filename, {})
+    category = overrides.get("category") or _derive_category(filename)
+    hard_constraint = overrides.get("hard_constraint", True)
 
     existing_count = session.query(PolicyChunk).filter_by(source_file=filename).count()
     if existing_count and not force:
@@ -181,6 +212,10 @@ def ingest(force: bool = False) -> None:
         print(f"No PDFs found in {POLICIES_DIR}. Run generate_policies.py first.")
         return
 
+    sidecar = _load_sidecar()
+    if sidecar:
+        print(f"Loaded metadata overrides for {len(sidecar)} file(s) from policies_metadata.json.")
+
     embedder = OpenAIEmbeddings(
         model=settings.EMBEDDING_MODEL,
         api_key=settings.OPENAI_API_KEY,
@@ -190,7 +225,7 @@ def ingest(force: bool = False) -> None:
     try:
         for pdf_path in pdf_files:
             print(f"  ingesting {pdf_path.name} ...")
-            count = _ingest_file(session, pdf_path, embedder, force)
+            count = _ingest_file(session, pdf_path, embedder, force, sidecar)
             if count:
                 print(f"  stored {count} chunks")
     finally:
