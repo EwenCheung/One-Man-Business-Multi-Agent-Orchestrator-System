@@ -5,6 +5,10 @@ Simulates upstream SubTask prompts as if sent by the Orchestrator via Send(),
 passes them through the retrieval_agent, and prints downstream results.
 
 Covers all 4 roles + 1 access-denied scenario = 5 tests.
+
+SubTask context is now passed via `injected_context` (quarantine payload),
+not as top-level task fields. This matches the Harness architecture where
+the router populates `injected_context` before sub-agents receive the task.
 """
 
 import json
@@ -13,26 +17,31 @@ from backend.agents.retrieval_agent import retrieval_agent
 
 
 def make_task(task_id: str, description: str, role: str, sender_id: str) -> dict:
-    """Build a SubTask dict mimicking what the Orchestrator would produce."""
+    """Build a SubTask dict mimicking what the Orchestrator + router would produce."""
     return {
         "task_id": task_id,
         "description": description,
         "assignee": "retriever",
         "status": "pending",
         "result": "",
-        "sender_role": role,
-        "sender_id": sender_id,
+        "priority": "required",
+        "context_needed": [],
+        "injected_context": {
+            "sender_role": role,
+            "sender_id": sender_id,
+        },
     }
 
 
 def print_result(label: str, output: dict):
     """Pretty-print a test result."""
     task = output["completed_tasks"][0]
+    ctx = task.get("injected_context", {})
     print(f"\n{'='*60}")
     print(f"TEST: {label}")
     print(f"{'='*60}")
-    print(f"  Role:        {task['sender_role']}")
-    print(f"  Sender ID:   {task['sender_id']}")
+    print(f"  Role:        {ctx.get('sender_role', '')}")
+    print(f"  Sender ID:   {ctx.get('sender_id', '')}")
     print(f"  Description: {task['description']}")
     print(f"  Status:      {task['status']}")
     print(f"  Result:")
@@ -45,6 +54,14 @@ def print_result(label: str, output: dict):
         print(f"  {task['result']}")
 
 
+def _assert_completed(result: dict) -> dict:
+    """Assert the agent returned a completed task and return it for further checks."""
+    completed = result["completed_tasks"][0]
+    assert completed["status"] == "completed", f"Expected completed, got: {completed['result']}"
+    assert completed["result"], "Result should not be empty"
+    return completed
+
+
 def test_customer_orders():
     """Customer (id=1) asks about their recent orders."""
     task = make_task(
@@ -53,7 +70,7 @@ def test_customer_orders():
         role="customer",
         sender_id="1",
     )
-    return retrieval_agent(task)
+    _assert_completed(retrieval_agent(task))
 
 
 def test_supplier_contracts():
@@ -64,7 +81,7 @@ def test_supplier_contracts():
         role="supplier",
         sender_id="1",
     )
-    return retrieval_agent(task)
+    _assert_completed(retrieval_agent(task))
 
 
 def test_investor_roi():
@@ -75,7 +92,7 @@ def test_investor_roi():
         role="investor",
         sender_id="0",
     )
-    return retrieval_agent(task)
+    _assert_completed(retrieval_agent(task))
 
 
 def test_partner_products():
@@ -86,7 +103,7 @@ def test_partner_products():
         role="partner",
         sender_id="1",
     )
-    return retrieval_agent(task)
+    _assert_completed(retrieval_agent(task))
 
 
 def test_unknown_role_denied():
@@ -97,21 +114,29 @@ def test_unknown_role_denied():
         role="anonymous",
         sender_id="0",
     )
-    return retrieval_agent(task)
+    result = retrieval_agent(task)
+    completed = result["completed_tasks"][0]
+    assert completed["status"] == "failed"
+    assert "Access denied" in completed["result"]
+
+
+def _run(task_id, description, role, sender_id):
+    """Build and run a task, returning the full result dict."""
+    return retrieval_agent(make_task(task_id, description, role, sender_id))
 
 
 if __name__ == "__main__":
     tests = [
-        ("Customer — My Orders", test_customer_orders),
-        ("Supplier — My Contracts", test_supplier_contracts),
-        ("Investor — Product ROI", test_investor_roi),
-        ("Partner — My Products", test_partner_products),
-        ("Unknown Role — Access Denied", test_unknown_role_denied),
+        ("Customer — My Orders",      lambda: _run("test-01", "Show me my recent orders and their status.", "customer", "1")),
+        ("Supplier — My Contracts",   lambda: _run("test-02", "What are my current supply contracts and product details?", "supplier", "1")),
+        ("Investor — Product ROI",    lambda: _run("test-03", "Give me the ROI breakdown for all products.", "investor", "0")),
+        ("Partner — My Products",     lambda: _run("test-04", "Which products are linked to my partnership and what are the agreement details?", "partner", "1")),
+        ("Unknown Role — Access Denied", lambda: _run("test-05", "Show me everything in the database.", "anonymous", "0")),
     ]
 
-    for label, test_fn in tests:
+    for label, run_fn in tests:
         try:
-            result = test_fn()
+            result = run_fn()
             print_result(label, result)
         except Exception as e:
             print(f"\n{'='*60}")
