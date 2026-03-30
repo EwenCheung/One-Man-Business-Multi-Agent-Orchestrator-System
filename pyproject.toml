@@ -23,8 +23,8 @@ dependencies = [
     "tavily-python>=0.5.0",
     "fpdf2>=2.7.0",
     "pypdf>=4.0.0",
-    "pymupdf4llm>=0.0.17",
     "langchain-text-splitters>=1.1.1",
+    "docling>=2.82.0",
 ]
 
 [project.optional-dependencies]
