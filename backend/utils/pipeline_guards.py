@@ -1,37 +1,34 @@
 """
-Pipeline Guards (PROPOSAL §6.2)
+Pipeline Guards — Safety & Constraint Verification
 
-Enforcement mechanisms to prevent runaway execution.
-
-## TODO
-- [ ] Track replan_count per request — enforce max_replan_cycles = 2
-- [ ] Track parallel task count — enforce max_parallel_tasks = 4 per cycle
-- [ ] Track total tool calls per request — enforce project-defined limit
-- [ ] On limit breach: force route_to_reply=True or halt with escalation
-- [ ] Log every limit check for observability
+Provides validation functions to protect the orchestrator from runaway
+execution costs, infinite loops, and overloading sub-agents.
 """
 
+import logging
+from backend.config import settings
+from backend.graph.state import PipelineState, SubTask
 
-# TODO: def check_replan_limit(state: dict, max_cycles: int = 2) -> bool:
-#     """
-#     Returns True if replanning is still allowed.
-#     Increments the replan counter in state.
-#     If limit reached, returns False — caller must force route_to_reply.
-#     """
-#     pass
+logger = logging.getLogger(__name__)
 
+def check_replan_limit(state: PipelineState, max_cycles: int = settings.MAX_REPLAN_CYCLES) -> tuple[bool, str | None]:
+    """
+    Check if the orchestrator has exceeded its permitted replanning loops.
+    Returns (is_exceeded, warning_message).
+    """
+    replan_count = state.get("replan_count", 0)
+    if replan_count >= max_cycles:
+        msg = f"Max replan cycles ({max_cycles}) reached. Forcing route to reply."
+        logger.warning(msg)
+        return True, msg
+    return False, None
 
-# TODO: def check_parallel_task_limit(tasks: list, max_tasks: int = 4) -> list:
-#     """
-#     Truncates task list if it exceeds max_parallel_tasks.
-#     Logs a warning if truncation occurred.
-#     Returns the (possibly truncated) task list.
-#     """
-#     pass
-
-
-# TODO: def check_total_tool_calls(state: dict, max_calls: int = 20) -> bool:
-#     """
-#     Returns True if total tool calls are within budget.
-#     """
-#     pass
+def check_parallel_task_limit(tasks: list[SubTask], max_tasks: int = 4) -> list[SubTask]:
+    """
+    Ensure the orchestrator does not spawn an unbounded number of parallel tasks.
+    Truncates the list and logs a warning if the limit is exceeded.
+    """
+    if len(tasks) > max_tasks:
+        logger.warning("Parallel task limit exceeded: requested %d, truncating to %d", len(tasks), max_tasks)
+        return tasks[:max_tasks]
+    return tasks

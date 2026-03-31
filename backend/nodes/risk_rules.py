@@ -23,9 +23,12 @@ Aggregation:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
+
+from backend.models.agent_response import AgentResponse
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +133,16 @@ def _has_retriever_confirmation(completed_tasks: list[TaskRecord], keywords: tup
         if _task_text(task, "status") != "completed":
             continue
 
-        result_text = _normalize_text(_task_text(task, "result"))
-        if any(keyword in result_text for keyword in keywords):
+        result_text = _task_text(task, "result")
+        search_text = result_text
+        try:
+            resp = AgentResponse.model_validate_json(result_text)
+            search_text = " ".join(resp.facts) if resp.facts else resp.result
+        except Exception:
+            pass
+            
+        search_text = _normalize_text(search_text)
+        if any(keyword in search_text for keyword in keywords):
             return True
     return False
 
@@ -141,11 +152,20 @@ def format_completed_tasks_summary(completed_tasks: list[TaskRecord]) -> str:
     if not completed_tasks:
         return "No sub-agent results."
 
-    task_lines = [
-        f"[{_task_text(task, 'assignee').upper() or '?'}] {_task_text(task, 'description')}: "
-        f"{_task_text(task, 'result')[:300]}"
-        for task in completed_tasks
-    ]
+    task_lines = []
+    for task in completed_tasks:
+        result_text = _task_text(task, "result")
+        try:
+            resp = AgentResponse.model_validate_json(result_text)
+            display_result = f"[Status: {resp.status}, Confidence: {resp.confidence}] {resp.result}"
+        except Exception:
+            display_result = result_text
+
+        task_lines.append(
+            f"[{_task_text(task, 'assignee').upper() or '?'}] {_task_text(task, 'description')}: "
+            f"{display_result[:300]}"
+        )
+            
     return "\n".join(task_lines)
 
 
@@ -218,9 +238,21 @@ def check_policy_cross(completed_tasks: list[TaskRecord]) -> list[str]:
     for task in completed_tasks:
         if _task_text(task, "assignee") != "policy":
             continue
-        result_text = _task_text(task, "result")
+        
         task_ref = f"task {task.get('task_id', '?')} — '{_task_text(task, 'description')}'"
-        has_disallowed, has_requires_approval, has_hard_constraint = _extract_policy_signals(result_text)
+        result_text = _task_text(task, "result")
+        has_hard_constraint = False
+        
+        try:
+            resp = AgentResponse.model_validate_json(result_text)
+            scan_text = resp.result
+            if any("HARD CONSTRAINT" in c for c in resp.constraints):
+                has_hard_constraint = True
+        except Exception:
+            scan_text = result_text
+            
+        has_disallowed, has_requires_approval, fallback_hc = _extract_policy_signals(scan_text)
+        has_hard_constraint = has_hard_constraint or fallback_hc
 
         if has_disallowed:
             flags.append(f"POLICY VIOLATION: Policy disallowed action in {task_ref}")

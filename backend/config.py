@@ -28,14 +28,14 @@ class Settings(BaseSettings):
     LLM_MODEL: str = ""  # Legacy override model (optional)
 
     # ── Retrieval Agent LLM  ──────────────────────────────────
-    RETRIEVAL_LLM_PROVIDER: str = ""
-    RETRIEVAL_LLM_API_KEY: str = ""
-    RETRIEVAL_LLM_MODEL: str = ""
+    RETRIEVAL_LLM_PROVIDER: str | None = None
+    RETRIEVAL_LLM_API_KEY: str | None = None
+    RETRIEVAL_LLM_MODEL: str | None = None
 
     # ── Policy Agent LLM ──────────────────────────────────────
-    POLICY_LLM_PROVIDER: str = ""
-    POLICY_LLM_API_KEY: str = ""
-    POLICY_LLM_MODEL: str = ""
+    POLICY_LLM_PROVIDER: str | None = None
+    POLICY_LLM_API_KEY: str | None = None
+    POLICY_LLM_MODEL: str | None = None
 
     # ── Policy Agent RAG ──────────────────────────────────────
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # 1536 dims — matches Vector(1536)
@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     MAX_REPLAN_CYCLES: int = 2
     MAX_PARALLEL_TASKS: int = 4
+    
+    # ── Observability ─────────────────────────────────────────
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
 
     model_config = {
         "env_file": ".env",

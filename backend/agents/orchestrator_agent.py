@@ -13,7 +13,10 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import PromptTemplate
 
 from backend.config import settings
+from backend.graph.state import PipelineState
+from backend.utils.context_compression import compress_context
 from backend.utils.llm_provider import get_chat_llm
+from backend.utils.pipeline_guards import check_replan_limit, check_parallel_task_limit
 
 # ── SCHEMAS ────────────────────────────────────────────────────
 class TaskDef(BaseModel):
@@ -112,8 +115,9 @@ def orchestrator_agent(state: dict) -> dict:
     warnings = state.get("orchestrator_warnings", [])
     
     # Pre-emption: If we hit loop limits, force reply
-    if replan_count >= settings.MAX_REPLAN_CYCLES:
-        warnings.append(f"Max replan cycles ({settings.MAX_REPLAN_CYCLES}) reached. Forcing route to reply.")
+    is_exceeded, limit_msg = check_replan_limit(state)
+    if is_exceeded:
+        warnings.append(limit_msg)
         return {
             "active_tasks": [],
             "route_to_reply": True,
@@ -122,9 +126,11 @@ def orchestrator_agent(state: dict) -> dict:
             "orchestrator_warnings": warnings
         }
 
+    import json
+    
     # 2. Format Feedback Loop States
     completed_tasks = state.get("completed_tasks", [])
-    completed_text = "\n".join([f"Task {t['task_id']} ({t['assignee']}): {t['result']}" for t in completed_tasks])
+    completed_text = compress_context(completed_tasks, max_tokens=4000)
     
     failed_tasks = state.get("failed_tasks", [])
     failed_text = "\n".join([f"Task {t['task_id']} ({t['assignee']}) FAILED: {t['result']}" for t in failed_tasks])
@@ -155,14 +161,11 @@ def orchestrator_agent(state: dict) -> dict:
     # 4. Harness Constraints & Fan-Out Mapping
     active_tasks = []
     
-    # Enforce parallel task limit
-    tasks_to_process = decision.tasks
-    if len(tasks_to_process) > settings.MAX_PARALLEL_TASKS:
-        warnings.append(f"LLM requested {len(tasks_to_process)} tasks. Truncating to max {settings.MAX_PARALLEL_TASKS}.")
-        tasks_to_process = tasks_to_process[:settings.MAX_PARALLEL_TASKS]
-
+    # Apply parallel task guard limit (e.g., max 4 parallel sub-agents)
+    sanitized_tasks = check_parallel_task_limit(decision.tasks)
+    
     # Build the task DAG payload
-    for t in tasks_to_process:
+    for t in sanitized_tasks:
         active_tasks.append({
             "task_id": t.task_id,
             "description": t.description,

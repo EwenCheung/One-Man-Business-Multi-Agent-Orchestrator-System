@@ -59,7 +59,7 @@ async def receive_message(incoming: IncomingMessage):
     """Accept an incoming message and run the full pipeline."""
     # Execute the LangGraph Pipeline
     from backend.graph.pipeline_graph import pipeline
-    from langchain_core.runnables import RunnableConfig
+    from backend.utils.langfuse import get_langfuse_handler
 
     # Run the pipeline with the incoming payload
     # Note: pipeline expects a PipelineState mapping
@@ -69,7 +69,11 @@ async def receive_message(incoming: IncomingMessage):
         "sender_name": incoming.sender_name or "Unknown"
     }
 
-    result = pipeline.invoke(initial_state)
+    # Setup Langfuse callbacks if configured
+    langfuse_handler = get_langfuse_handler()
+    config = {"callbacks": [langfuse_handler]} if langfuse_handler else {}
+
+    result = pipeline.invoke(initial_state, config=config)
 
     # Extract final output
     return PipelineResult(

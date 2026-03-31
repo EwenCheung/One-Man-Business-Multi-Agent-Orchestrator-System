@@ -25,6 +25,7 @@ class PipelineState(TypedDict, total=False):
 
     # ── Input (set at the start) ──────────────────────────────
     raw_message: str
+    owner_id: str
     sender_id: str
     sender_name: str
     thread_id: str

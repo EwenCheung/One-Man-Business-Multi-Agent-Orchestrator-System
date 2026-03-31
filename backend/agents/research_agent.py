@@ -16,6 +16,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 
+from backend.graph.state import SubTask
+from backend.models.agent_response import AgentResponse
 from backend.agents.tools.skills import SkillsLoader
 from backend.config import settings
 from backend.utils.llm_provider import get_chat_llm
@@ -385,25 +387,47 @@ def research_agent(task: SubTask, sender_role: str = "unknown") -> dict:
 
     llm = get_chat_llm(temperature=0.0)
 
-    # 1. Extract focused search queries from the task description
-    queries = _extract_queries(task_description, llm)
+    try:
+        # 1. Extract focused search queries from the task description
+        queries = _extract_queries(task_description, llm)
 
-    # 2. Call Tavily web search API directly (no LLM)
-    raw_results = _run_tavily_search(queries)
+        # 2. Call Tavily web search API directly (no LLM)
+        raw_results = _run_tavily_search(queries)
 
-    # 3. Synthesise raw results into structured findings
-    summary = _synthesise(task_description, raw_results, llm, sender_role)
+        # 3. Synthesise raw results into structured findings
+        summary = _synthesise(task_description, raw_results, llm, sender_role)
 
-    # 4. Format for the Orchestrator / Reply Agent
-    result_text = _format_result(summary)
+        # 4. Format for the Orchestrator / Reply Agent
+        result_text = _format_result(summary)
 
-    logger.info(
-        "ResearchAgent: task '%s' complete | confidence=%s | findings=%d",
-        task["task_id"], summary.confidence, len(summary.key_findings),
-    )
+        logger.info(
+            "ResearchAgent: task '%s' complete | confidence=%s | findings=%d",
+            task["task_id"], summary.confidence, len(summary.key_findings),
+        )
 
-    completed_task           = task.copy()
-    completed_task["status"] = "completed"
-    completed_task["result"] = result_text
+        agent_response = AgentResponse(
+            status="success",
+            confidence=summary.confidence,
+            result=result_text,
+            facts=summary.key_findings,
+            unknowns=[],
+            constraints=[]
+        )
+
+        completed_task = dict(task)
+        completed_task["status"] = "completed"
+        completed_task["result"] = agent_response.model_dump_json()
+
+    except Exception as exc:
+        logger.error("ResearchAgent: unexpected error on task '%s' — %s", task["task_id"], exc)
+        agent_response = AgentResponse(
+            status="failed",
+            confidence="low",
+            result=f"Research agent failed: {exc}",
+            unknowns=[str(exc)],
+        )
+        completed_task = dict(task)
+        completed_task["status"] = "failed"
+        completed_task["result"] = agent_response.model_dump_json()
 
     return {"completed_tasks": [completed_task]}

@@ -172,7 +172,7 @@ def hold_reply(
                 )
                 VALUES (
                     :owner_id, :thread_id, :sender_id, :sender_name,
-                    :sender_role, :reply_text, :risk_level, :risk_flags::jsonb, 'pending'
+                    :sender_role, :reply_text, :risk_level, CAST(:risk_flags AS jsonb), 'pending'
                 )
                 RETURNING id
             """),

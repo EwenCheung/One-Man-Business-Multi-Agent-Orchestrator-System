@@ -213,6 +213,7 @@ class PartnerProductRelation(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     partner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("partners.id"))
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"))
+    agreement_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("partner_agreements.id"), nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
     partner: Mapped["Partner"] = relationship(back_populates="partner_product_relations")
     product: Mapped["Product"] = relationship(back_populates="partner_product_relations")

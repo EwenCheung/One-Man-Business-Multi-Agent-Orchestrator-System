@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
+from backend.models.agent_response import AgentResponse
 from backend.tools.policy_tools import rerank_chunks, search_policy_chunks
 from backend.utils.llm_provider import get_chat_llm
 
@@ -261,13 +262,28 @@ def policy_agent(task: SubTask) -> dict:
             task.get("task_id"), decision.verdict, decision.confidence,
         )
 
+        agent_response = AgentResponse(
+            status="success",
+            confidence=decision.confidence,
+            result=result_text,
+            facts=decision.supporting_rules,
+            unknowns=[decision.caveat] if decision.caveat else [],
+            constraints=["HARD CONSTRAINT: " + r for r in decision.supporting_rules] if decision.hard_constraint else []
+        )
+
         completed_task["status"] = "completed"
-        completed_task["result"] = result_text
+        completed_task["result"] = agent_response.model_dump_json()
 
     except Exception as exc:
         logger.error("PolicyAgent: unexpected error on task '%s' — %s", task.get("task_id"), exc)
+        agent_response = AgentResponse(
+            status="failed",
+            confidence="low",
+            result=f"Policy agent failed: {exc}",
+            unknowns=[str(exc)]
+        )
         completed_task["status"] = "failed"
-        completed_task["result"] = f"Policy agent failed: {exc}"
+        completed_task["result"] = agent_response.model_dump_json()
     finally:
         session.close()
 

@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
+from backend.models.agent_response import AgentResponse
 from backend.utils.llm_provider import get_chat_llm
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,10 @@ RiskLevel = Literal["low", "medium", "high"]
 # ────────────────────────────────────────────────────────
 # GENERIC HELPERS
 # ────────────────────────────────────────────────────────
+
+def _get_llm(scope: str = "memory"):
+    return get_chat_llm(scope=scope, temperature=0.0)
+
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -456,7 +461,7 @@ def _calculate_risk(records: list[dict[str, Any]]) -> RiskLevel:
 # READ MODE
 # ────────────────────────────────────────────────────────
 
-def memory_read_agent(task: SubTask) -> dict:
+def memory_read_node(task: SubTask) -> dict:
     completed_task = dict(task)
     session = SessionLocal()
 
@@ -480,7 +485,7 @@ def memory_read_agent(task: SubTask) -> dict:
 
         retrieved_records = _format_retrieved_records(messages, memories)
 
-        llm = get_chat_llm(scope="memory", temperature=0.0)
+        llm = _get_llm()
         structured_llm = llm.with_structured_output(MemoryReadSummary)
 
         prompt = MEMORY_READ_PROMPT.format(
@@ -490,15 +495,32 @@ def memory_read_agent(task: SubTask) -> dict:
 
         summary = structured_llm.invoke(prompt)
 
+        result_text = _json_dump(summary.model_dump())
+        
+        agent_response = AgentResponse(
+            status="success",
+            confidence="high",
+            result=result_text,
+            facts=[],
+            unknowns=[],
+            constraints=[]
+        )
+
         completed_task["status"] = "completed"
-        completed_task["result"] = _json_dump(summary.model_dump())
+        completed_task["result"] = agent_response.model_dump_json()
 
         return {"completed_tasks": [completed_task]}
 
     except Exception as exc:
         logger.exception("Memory read agent failed")
+        agent_response = AgentResponse(
+            status="failed",
+            confidence="low",
+            result=f"Memory read error: {exc}",
+            unknowns=[str(exc)]
+        )
         completed_task["status"] = "failed"
-        completed_task["result"] = f"Memory read error: {exc}"
+        completed_task["result"] = agent_response.model_dump_json()
         return {"completed_tasks": [completed_task]}
 
     finally:
@@ -509,7 +531,7 @@ def memory_read_agent(task: SubTask) -> dict:
 # UPDATE MODE
 # ────────────────────────────────────────────────────────
 
-def memory_update_agent(state: dict) -> dict:
+def memory_update_node(state: dict) -> dict:
     session = SessionLocal()
     try:
         owner_id = _get_owner_id_from_state(state)
@@ -624,17 +646,3 @@ def memory_update_agent(state: dict) -> dict:
 
     finally:
         session.close()
-
-def memory_agent_node(state: dict) -> dict:
-    """
-    READ MODE:
-    - called from orchestrator fan-out with a SubTask-like dict
-    - detects by presence of task_id
-
-    UPDATE MODE:
-    - called at end of pipeline with full state
-    """
-    if "task_id" in state:
-        return memory_read_agent(state)
-
-    return memory_update_agent(state)

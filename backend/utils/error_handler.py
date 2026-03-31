@@ -33,6 +33,8 @@ def classify_error(error: Exception) -> str:
     return "logic_failure"
 
 
+from backend.utils.context_quarantine import quarantine_result
+
 def safe_agent_call(agent_fn: Callable) -> Callable:
     """
     Wraps any agent function call with error handling.
@@ -46,14 +48,10 @@ def safe_agent_call(agent_fn: Callable) -> Callable:
         try:
             return agent_fn(task)
         except Exception as e:
-            error_class = classify_error(e)
-            error_details = f"[{error_class}]: {str(e)}\n{traceback.format_exc()}"
-            
-            failed_task = task.copy()
-            failed_task["status"] = "failed"
-            failed_task["result"] = f"Agent Crash Guard: {error_details}"
-            
-            # Send the catastrophic failure back to the array the Orchestrator watches
+            # state dict or SubTask dict
+            task_id = task.get("task_id", "unknown_task")
+            assignee = task.get("assignee", agent_fn.__name__)
+            failed_task = quarantine_result(task_id, assignee, e)
             return {"failed_tasks": [failed_task]}
             
     return wrapper

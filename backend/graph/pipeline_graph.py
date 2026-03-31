@@ -38,7 +38,7 @@ from backend.agents.orchestrator_agent import orchestrator_agent
 from backend.agents.retrieval_agent import retrieval_agent
 from backend.agents.policy_agent import policy_agent
 from backend.agents.research_agent import research_agent
-from backend.agents.memory_agent import memory_agent_node
+from backend.agents.memory_agent import memory_read_node, memory_update_node
 from backend.agents.reply_agent import reply_agent
 
 from backend.utils.error_handler import safe_agent_call
@@ -157,8 +157,8 @@ def build_graph() -> StateGraph:
     graph.add_node("risk", risk_node)
     
     # ── Add memory nodes (dual purpose) ────────────────────────
-    graph.add_node("memory_read", safe_agent_call(memory_agent_node))
-    graph.add_node("memory_update", safe_agent_call(memory_agent_node))
+    graph.add_node("memory_read", safe_agent_call(memory_read_node))
+    graph.add_node("memory_update", safe_agent_call(memory_update_node))
 
     # ── Add risk approval node ──────────────────────────────────
     graph.add_node("hold_for_approval", hold_for_approval_node)

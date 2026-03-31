@@ -1,37 +1,53 @@
 """
-Context Quarantine (PROPOSAL §5.4)
+Context Quarantine — Safe Error Handling
 
-Wraps failed or unreliable subtask outputs so they don't
-contaminate sibling tasks or propagate as facts.
-
-## TODO
-- [ ] Wrap agent exceptions into structured failure payloads
-- [ ] Tag quarantined results as: failed | incomplete | low_confidence | unsupported
-- [ ] Strip internal error traces before returning to orchestrator
-- [ ] Log the raw failure separately for debugging
+Contains logic to encapsulate raw agent failures, stripping out internal details
+(e.g., stack traces, underlying APIs) before they reach the orchestrator or reply agent.
 """
 
+import logging
+import traceback
+from typing import Any
 
-# TODO: def quarantine_result(task: dict, error: Exception) -> dict:
-#     """
-#     Wraps a failed subtask into a safe, structured result.
-#     The orchestrator receives a clean failure signal, not a raw traceback.
-#
-#     Returns:
-#         {
-#             "task_id": task["task_id"],
-#             "assignee": task["assignee"],
-#             "status": "failed",
-#             "result": "Task failed: <sanitized reason>",
-#             "error_class": "tool_failure" | "logic_failure" | "timeout",
-#         }
-#     """
-#     pass
+from backend.models.agent_response import AgentResponse
 
+logger = logging.getLogger(__name__)
 
-# TODO: def sanitize_output(result: dict) -> dict:
-#     """
-#     Strips internal traces, stack traces, and raw error messages
-#     from a completed task result before returning to the orchestrator.
-#     """
-#     pass
+def sanitize_output(error_msg: str) -> str:
+    """
+    Strips raw stack traces and internal references from an error message
+    so it is safe to show to the LLM or user.
+    """
+    if "Traceback" in error_msg:
+        # Keep only the last line (the actual Exception message)
+        lines = error_msg.strip().split("\n")
+        return f"Internal execution failure: {lines[-1]}"
+    return str(error_msg)
+
+def quarantine_result(task_id: str, assignee: str, exc: Exception) -> dict[str, Any]:
+    """
+    Wraps an exception in a standardised 'failed' SubTask payload.
+    Uses the AgentResponse contract to ensure consistency.
+    """
+    raw_error = str(exc)
+    if not raw_error:
+        raw_error = traceback.format_exc()
+        
+    sanitized = sanitize_output(raw_error)
+    logger.error("Task %s (%s) quarantined due to: %s", task_id, assignee, sanitized)
+    
+    resp = AgentResponse(
+        status="failed",
+        confidence="low",
+        result=f"Agent '{assignee}' failed during execution: {sanitized}",
+        unknowns=["execution_failure"],
+        constraints=[]
+    )
+    
+    return {
+        "task_id": task_id,
+        "assignee": assignee,
+        "status": "failed",
+        "description": "Quarantined due to internal error.",
+        "result": resp.model_dump_json()
+    }

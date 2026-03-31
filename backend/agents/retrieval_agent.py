@@ -58,7 +58,9 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
+from backend.config import settings
 from backend.db.engine import SessionLocal
+from backend.models.agent_response import AgentResponse
 from backend.graph.state import SubTask
 from backend.tools.role_permissions import get_tools_for_role
 from backend.tools import retrieval_tools as rt
@@ -327,15 +329,35 @@ def retrieval_agent(task: SubTask) -> dict:
                 else:
                     results.append(f"Tool '{tool_call['name']}' not found in allowed tools.")
 
+            raw_result = "\n".join(str(r) for r in results)
+            agent_response = AgentResponse(
+                status="success",
+                confidence="high" if raw_result else "low",
+                result=raw_result or "No data found.",
+                facts=[raw_result] if raw_result else [],
+                unknowns=[] if raw_result else ["Requested data was empty or not found."]
+            )
             completed_task["status"] = "completed"
-            completed_task["result"] = "\n".join(str(r) for r in results)
+            completed_task["result"] = agent_response.model_dump_json()
         else:
             # LLM responded without tool calls — use its text response
+            agent_response = AgentResponse(
+                status="partial",
+                confidence="medium",
+                result=response.content,
+                unknowns=["Model returned text instead of calling a specific tool."]
+            )
             completed_task["status"] = "completed"
-            completed_task["result"] = response.content
+            completed_task["result"] = agent_response.model_dump_json()
 
     except Exception as e:
+        agent_response = AgentResponse(
+            status="failed",
+            confidence="low",
+            result=f"Retrieval error: {e}",
+            unknowns=[str(e)]
+        )
         completed_task["status"] = "failed"
-        completed_task["result"] = f"Retrieval error: {e}"
+        completed_task["result"] = agent_response.model_dump_json()
 
     return {"completed_tasks": [completed_task]}
