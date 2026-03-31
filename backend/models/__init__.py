@@ -9,6 +9,7 @@ class IncomingMessage(BaseModel):
     raw_message: str = Field(..., min_length=1)
     sender_id: str = Field(..., min_length=1)
     sender_name: str | None = None
+    thread_id: str | None = None
 
 
 class PipelineResult(BaseModel):

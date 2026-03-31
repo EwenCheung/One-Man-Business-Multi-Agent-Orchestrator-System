@@ -246,6 +246,73 @@ def _build_tools_for_request(role: str, sender_id: str):
                 session.close()
         tools.append(get_partner_products)
 
+    # ── Semantic Search tools ────────────────────────────────
+    if "semantic_search_product_catalog" in allowed_names:
+        @tool
+        def semantic_search_product_catalog(query: str, top_k: int = 5) -> str:
+            """Find products semantically similar to the query string. Returns catalog fields."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_product_catalog(session, query, top_k), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_product_catalog)
+
+    if "semantic_search_full_product_table" in allowed_names:
+        @tool
+        def semantic_search_full_product_table(query: str, top_k: int = 5) -> str:
+            """Find products semantically similar to the query string. Returns full product table (investor only)."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_full_product_table(session, query, top_k), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_full_product_table)
+
+    if "semantic_search_supplier_contracts" in allowed_names:
+        @tool
+        def semantic_search_supplier_contracts(query: str, top_k: int = 5) -> str:
+            """Find supply contracts semantically similar to the query string, scoped to current supplier."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_supplier_contracts(session, query, sender_id, top_k), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_supplier_contracts)
+
+    if "semantic_search_supply_overview" in allowed_names:
+        @tool
+        def semantic_search_supply_overview(query: str, top_k: int = 5) -> str:
+            """Find supply contracts semantically similar to the query string. Returns full overview (investor only)."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_supply_overview(session, query, top_k), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_supply_overview)
+
+    if "semantic_search_all_partner_agreements" in allowed_names:
+        @tool
+        def semantic_search_all_partner_agreements(query: str, top_k: int = 5) -> str:
+            """Find partner agreements semantically similar to the query string across all partners."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_all_partner_agreements(session, query, top_k), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_all_partner_agreements)
+
+    if "semantic_search_partner_agreements" in allowed_names:
+        @tool
+        def semantic_search_partner_agreements(query: str, top_k: int = 5) -> str:
+            """Find partner agreements semantically similar to the query string, scoped to current partner."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_partner_agreements(session, query, sender_id, top_k), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_partner_agreements)
+
     return tools
 
 

@@ -242,6 +242,25 @@ def approve_reply(held_reply_id: str) -> dict:
         if not result:
             raise ValueError("Held reply not found")
 
+        # Save to messages table since it's now approved to be sent
+        session.execute(
+            text("""
+                INSERT INTO public.messages (
+                    owner_id, sender_id, sender_name, sender_role, direction, content
+                )
+                VALUES (
+                    :owner_id, :sender_id, :sender_name, :sender_role, 'outbound', :content
+                )
+            """),
+            {
+                "owner_id": result["owner_id"],
+                "sender_id": result["sender_id"],
+                "sender_name": result["sender_name"],
+                "sender_role": result["sender_role"],
+                "content": result["reply_text"]
+            }
+        )
+
         session.commit()
         return {
             "status": "approved",

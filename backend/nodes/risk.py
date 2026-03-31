@@ -20,7 +20,9 @@ from backend.nodes.risk_rules import (
     check_disclosure,
     check_escalation_triggers,
     check_intent_urgency,
+    check_pii_leakage,
     check_policy_cross,
+    check_role_sensitivity,
     check_tone,
     check_unverified_claims,
     scan_for_risky_keywords,
@@ -63,6 +65,8 @@ def risk_node(state: dict) -> dict:
     flags.extend(scan_for_risky_keywords(reply_text))
     flags.extend(check_disclosure(reply_text, sender_role))
     flags.extend(check_escalation_triggers(reply_text))
+    flags.extend(check_pii_leakage(reply_text))               # ← PII / credentials
+    flags.extend(check_role_sensitivity(reply_text, sender_role))  # ← role thresholds
     flags.extend(check_policy_cross(completed_tasks))
     flags.extend(check_unverified_claims(reply_text, completed_tasks))
     flags.extend(check_confidence(confidence_level, confidence_note, unverified_claims))
