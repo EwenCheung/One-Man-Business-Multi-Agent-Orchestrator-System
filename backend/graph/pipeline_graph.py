@@ -15,9 +15,12 @@ Flow:
 
     [Nodes complete] → [FAN-IN aggregation back to Orchestrator]
     orchestrator evaluates results.
-    If route_to_reply=True → reply → risk → memory_update → END
+    If route_to_reply=True → reply → risk →
+        LOW  → memory_update → END
+        MED/HIGH → hold_for_approval → END (owner decides via dashboard)
 """
 
+import logging
 import operator
 from typing import Annotated, Sequence
 
@@ -39,6 +42,9 @@ from backend.agents.memory_agent import memory_agent_node
 from backend.agents.reply_agent import reply_agent
 
 from backend.utils.error_handler import safe_agent_call
+from backend.services.approval_service import hold_reply
+
+logger = logging.getLogger(__name__)
 
 
 def continue_from_orchestrator(state: PipelineState):
@@ -82,6 +88,64 @@ def continue_from_orchestrator(state: PipelineState):
     return sends
 
 
+def route_after_risk(state: PipelineState) -> str:
+    """
+    Conditional Router: Routes based on risk level after risk evaluation.
+
+    LOW risk → proceed to memory_update (auto-send reply)
+    MEDIUM/HIGH risk → hold reply for owner approval via dashboard
+    """
+    risk_level = state.get("risk_level", "low").lower()
+    requires_approval = state.get("requires_approval", False)
+
+    if risk_level in ("medium", "high") or requires_approval:
+        return "hold_for_approval"
+    return "memory_update"
+
+
+def hold_for_approval_node(state: PipelineState) -> dict:
+    """
+    Saves the flagged reply to held_replies table and creates a
+    pending_approvals entry for the owner dashboard.
+
+    The reply is NOT sent until the owner approves it via the API.
+    """
+    reply_text = state.get("reply_text", "")
+    risk_level = state.get("risk_level", "medium")
+    risk_flags = state.get("risk_flags", [])
+
+    # We need an owner_id — for now use a placeholder that the API layer can resolve
+    # In production, this should come from the authenticated user context
+    owner_id = state.get("owner_id", "00000000-0000-0000-0000-000000000000")
+
+    try:
+        held_reply_id = hold_reply(
+            owner_id=owner_id,
+            reply_text=reply_text,
+            risk_level=risk_level,
+            risk_flags=risk_flags,
+            sender_id=state.get("sender_id"),
+            sender_name=state.get("sender_name"),
+            sender_role=state.get("sender_role"),
+            thread_id=state.get("thread_id"),
+        )
+        logger.info(
+            "Reply held for approval | risk=%s | held_reply_id=%s | flags=%s",
+            risk_level, held_reply_id, risk_flags,
+        )
+        return {
+            "held_reply_id": held_reply_id,
+            "reply_text": f"[HELD FOR APPROVAL] {reply_text}",
+        }
+    except Exception as e:
+        logger.error("Failed to hold reply for approval: %s", e)
+        # Fallback: still mark as held but log the error
+        return {
+            "held_reply_id": "",
+            "reply_text": f"[HOLD FAILED — REVIEW MANUALLY] {reply_text}",
+        }
+
+
 def build_graph() -> StateGraph:
     """Construct and compile the LangGraph Supervisor pipeline."""
     graph = StateGraph(PipelineState)
@@ -94,7 +158,10 @@ def build_graph() -> StateGraph:
     
     # ── Add memory nodes (dual purpose) ────────────────────────
     graph.add_node("memory_read", safe_agent_call(memory_agent_node))
-    graph.add_node("memory_update", memory_agent_node)
+    graph.add_node("memory_update", safe_agent_call(memory_agent_node))
+
+    # ── Add risk approval node ──────────────────────────────────
+    graph.add_node("hold_for_approval", hold_for_approval_node)
 
     # ── Add Sub-Agent Nodes (mapped via Send) ──────────────────
     graph.add_node("retriever", safe_agent_call(retrieval_agent))
@@ -122,8 +189,20 @@ def build_graph() -> StateGraph:
 
     # ── Final Output Flow ──────────────────────────────────────
     graph.add_edge("reply", "risk")
-    graph.add_edge("risk", "memory_update")
+
+    # ── CONDITIONAL: Risk routes based on risk level ───────────
+    graph.add_conditional_edges(
+        "risk",
+        route_after_risk,
+        {
+            "memory_update": "memory_update",
+            "hold_for_approval": "hold_for_approval",
+        },
+    )
+
+    # ── Terminal edges ─────────────────────────────────────────
     graph.add_edge("memory_update", END)
+    graph.add_edge("hold_for_approval", END)
 
     return graph.compile()
 

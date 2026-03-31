@@ -93,7 +93,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get all orders for the current customer, including product name and order status."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_customer_orders(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_customer_orders(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_customer_orders)
@@ -104,7 +104,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get the current customer's profile information."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_customer_profile(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_customer_profile(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_customer_profile)
@@ -116,7 +116,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get the current supplier's profile information."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_supplier_profile(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_supplier_profile(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_supplier_profile)
@@ -127,7 +127,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get all supply contracts for the current supplier, including product details."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_supplier_contracts(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_supplier_contracts(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_supplier_contracts)
@@ -217,7 +217,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get the current partner's profile information."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_partner_profile(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_partner_profile(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_partner_profile)
@@ -228,7 +228,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get all agreements for the current partner."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_partner_agreements(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_partner_agreements(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_partner_agreements)
@@ -239,7 +239,7 @@ def _build_tools_for_request(role: str, sender_id: str):
             """Get all products linked to the current partner, with product details and agreement info."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_partner_products(session, int(sender_id)), default=str)
+                return json.dumps(rt.get_partner_products(session, sender_id), default=str)
             finally:
                 session.close()
         tools.append(get_partner_products)

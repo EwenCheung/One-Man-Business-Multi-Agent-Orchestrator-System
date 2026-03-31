@@ -1,40 +1,32 @@
 """
-Sets up SQLAlchemy for relational DBs
+Unified SQLAlchemy engine — Supabase PostgreSQL only.
+
+All agents, nodes, and services use `SessionLocal` from this module.
 """
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.config import settings
 
-# Existing DB
-engine = create_engine(settings.DATABASE_URL, echo=False)
+if not settings.SUPABASE_DB_URL:
+    raise RuntimeError(
+        "SUPABASE_DB_URL is not configured. "
+        "Set it in your .env file to point to your Supabase PostgreSQL instance."
+    )
+
+engine = create_engine(
+    settings.SUPABASE_DB_URL,
+    connect_args={"sslmode": "require"},
+    echo=False,
+    pool_pre_ping=True,
+)
+
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
-# Supabase Postgres
-if settings.SUPABASE_DB_URL:
-    supabase_engine = create_engine(
-        settings.SUPABASE_DB_URL,
-        connect_args={"sslmode": "require"},
-        echo=False,
-    )
-    SupabaseSessionLocal = sessionmaker(
-        bind=supabase_engine,
-        autocommit=False,
-        autoflush=False,
-    )
-else:
-    supabase_engine = None
-    SupabaseSessionLocal = None
 
 def get_session():
+    """Dependency generator for unified DB sessions."""
     session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
-
-def get_supabase_session():
-    session = SupabaseSessionLocal()
     try:
         yield session
     finally:

@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from backend.db.engine import SupabaseSessionLocal
+from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
 from backend.utils.llm_provider import get_chat_llm
 
@@ -458,7 +458,7 @@ def _calculate_risk(records: list[dict[str, Any]]) -> RiskLevel:
 
 def memory_read_agent(task: SubTask) -> dict:
     completed_task = dict(task)
-    session = SupabaseSessionLocal()
+    session = SessionLocal()
 
     try:
         description = _normalize_text(task.get("description", ""))
@@ -510,7 +510,7 @@ def memory_read_agent(task: SubTask) -> dict:
 # ────────────────────────────────────────────────────────
 
 def memory_update_agent(state: dict) -> dict:
-    session = SupabaseSessionLocal()
+    session = SessionLocal()
     try:
         owner_id = _get_owner_id_from_state(state)
         sender_id = _get_sender_id_from_state(state)

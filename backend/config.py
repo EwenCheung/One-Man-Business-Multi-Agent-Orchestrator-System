@@ -3,7 +3,7 @@ Application configuration — all values loaded from .env file.
 
 Usage:
     from backend.config import settings
-    print(settings.DATABASE_URL)
+    print(settings.SUPABASE_DB_URL)
 """
 
 from pydantic_settings import BaseSettings
@@ -15,13 +15,9 @@ load_dotenv()
 class Settings(BaseSettings):
     """Central configuration — all values must be set in .env file."""
 
-    # ── Database ──────────────────────────────────────────────
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "postgres"
-    DATABASE_URL: str = "sqlite:///backend/db/local.db"
+    # ── Database (Supabase — unified) ────────────────────────
     SUPABASE_DB_URL: str = ""
-        
+
     # ── LLM ───────────────────────────────────────────────────
     AI_PROVIDER: str = "auto"  # auto | openai | gemini
     OPENAI_API_KEY: str = "dummy-key"

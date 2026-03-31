@@ -375,6 +375,12 @@ def research_agent(task: SubTask, sender_role: str = "unknown") -> dict:
         into the main ``PipelineState.completed_tasks`` automatically.
     """
     task_description = task["description"]
+
+    # Extract sender_role from injected_context if available
+    injected = task.get("injected_context", {})
+    if injected.get("sender_role"):
+        sender_role = injected["sender_role"]
+
     logger.info("ResearchAgent: starting task '%s' — %s", task["task_id"], task_description)
 
     llm = get_chat_llm(temperature=0.0)

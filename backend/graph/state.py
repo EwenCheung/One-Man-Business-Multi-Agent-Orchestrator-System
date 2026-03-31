@@ -65,5 +65,8 @@ class PipelineState(TypedDict, total=False):
     risk_flags: list[str]
     requires_approval: bool
 
+    # ── Risk Approval Flow ────────────────────────────────────
+    held_reply_id: str        # UUID of the held reply (if risk triggered hold)
+
     # ── Update output ─────────────────────────────────────────
     memory_updates: list[dict[str, Any]]

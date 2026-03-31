@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import PromptTemplate
 
 from backend.db.engine import SessionLocal
-from backend.db.models import Customer, Supplier, Partner
+from backend.db.models import Customer, Supplier, Partner, Investor
 from backend.utils.llm_provider import get_chat_llm
 
 class IntakeTriage(BaseModel):
@@ -38,18 +38,20 @@ def _lookup_sender(sender_id: str) -> str:
     
     session = SessionLocal()
     try:
-        if session.query(Customer).filter_by(id=int(sender_id)).first():
+        if session.query(Customer).filter_by(id=sender_id).first():
             return "Customer"
-        if session.query(Supplier).filter_by(id=int(sender_id)).first():
+        if session.query(Supplier).filter_by(id=sender_id).first():
             return "Supplier"
-        if session.query(Partner).filter_by(id=int(sender_id)).first():
+        if session.query(Partner).filter_by(id=sender_id).first():
             return "Partner"
+        if session.query(Investor).filter_by(id=sender_id).first():
+            return "Investor"
     except Exception:
         pass
     finally:
         session.close()
         
-    # Fallback to a default if db not formed or sender_id is not an int
+    # Fallback to a default if db not formed or sender_id is not found
     return "Prospect"
 
 
