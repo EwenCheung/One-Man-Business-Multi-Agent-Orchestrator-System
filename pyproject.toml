@@ -55,6 +55,11 @@ include = ["backend"]
 requires = ["setuptools>=69.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "vulture>=2.16",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
@@ -65,3 +70,19 @@ testpaths = ["tests"]
 filterwarnings = [
     'ignore:.*torch\.jit\.script.*deprecated.*:DeprecationWarning',
 ]
+
+[tool.vulture]
+paths = ["backend"]
+exclude = [
+    "*/__pycache__/*",
+    "*/test_*.py",
+]
+ignore_decorators = [
+    "@app.*",
+    "@router.*",
+]
+ignore_names = [
+    "model_config",
+]
+min_confidence = 100
+sort_by_size = true
