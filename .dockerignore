@@ -38,7 +38,6 @@ htmlcov/
 .tox/
 
 # Documentation and development
-*.md
 docs/
 README*
 LICENSE
