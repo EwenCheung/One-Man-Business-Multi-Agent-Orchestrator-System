@@ -9,6 +9,7 @@ from backend.tools.retrieval_tools import (
     get_product_catalog,
     get_customer_orders,
     get_customer_profile,
+    evaluate_discount_request,
     # Supplier
     get_supplier_profile,
     get_supplier_contracts,
@@ -41,6 +42,7 @@ ROLE_TOOL_MAP: dict[str, list] = {
         get_product_catalog,
         get_customer_orders,
         get_customer_profile,
+        evaluate_discount_request,
         semantic_search_product_catalog,
     ],
     "supplier": [

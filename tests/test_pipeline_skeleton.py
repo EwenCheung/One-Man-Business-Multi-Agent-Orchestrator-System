@@ -9,7 +9,7 @@ def test_agents_import():
     """All agent modules should be importable."""
     agents = [
         "backend.agents.orchestrator_agent",
-        "backend.agents.retriever_agent",
+        "backend.agents.retrieval_agent",
         "backend.agents.research_agent",
         "backend.agents.policy_agent",
         "backend.agents.reply_agent",
@@ -35,6 +35,7 @@ def test_graph_state_import():
     """Graph state should be importable."""
     from backend.graph.state import PipelineState
     from backend.graph.pipeline_graph import pipeline
+
     assert PipelineState is not None
     assert pipeline is not None
 
@@ -42,6 +43,7 @@ def test_graph_state_import():
 def test_models_import():
     """Models should be importable."""
     from backend.models import IncomingMessage, PipelineResult
+
     assert IncomingMessage is not None
     assert PipelineResult is not None
 
@@ -49,4 +51,5 @@ def test_models_import():
 def test_app_import():
     """FastAPI app should be importable."""
     from backend.main import app
+
     assert app is not None

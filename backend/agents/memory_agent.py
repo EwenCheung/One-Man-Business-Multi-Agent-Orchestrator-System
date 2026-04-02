@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Mapping, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
@@ -78,6 +79,7 @@ Completed Tasks Summary:
 # STRUCTURED OUTPUT SCHEMAS
 # ────────────────────────────────────────────────────────
 
+
 class MemoryReadItem(BaseModel):
     summary: str = Field(description="Concise factual summary")
     source: str = Field(description="messages | memory_entries")
@@ -106,6 +108,7 @@ RiskLevel = Literal["low", "medium", "high"]
 # GENERIC HELPERS
 # ────────────────────────────────────────────────────────
 
+
 def _get_llm(scope: str = "memory"):
     return get_chat_llm(scope=scope, temperature=0.0)
 
@@ -124,7 +127,7 @@ def _json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str, indent=2)
 
 
-def _get_owner_id_from_state(state: dict) -> str | None:
+def _get_owner_id_from_state(state: Mapping[str, Any]) -> str | None:
     if state.get("owner_id"):
         return str(state["owner_id"])
 
@@ -135,18 +138,24 @@ def _get_owner_id_from_state(state: dict) -> str | None:
     return None
 
 
-def _get_sender_id_from_state(state: dict) -> str | None:
+def _get_sender_id_from_state(state: Mapping[str, Any]) -> str | None:
+    if state.get("external_sender_id"):
+        return str(state["external_sender_id"])
+
     if state.get("sender_id"):
         return str(state["sender_id"])
 
     injected = state.get("injected_context", {}) or {}
+    if injected.get("external_sender_id"):
+        return str(injected["external_sender_id"])
+
     if injected.get("sender_id"):
         return str(injected["sender_id"])
 
     return None
 
 
-def _get_sender_role_from_state(state: dict) -> str | None:
+def _get_sender_role_from_state(state: Mapping[str, Any]) -> str | None:
     if state.get("sender_role"):
         return str(state["sender_role"])
 
@@ -157,7 +166,7 @@ def _get_sender_role_from_state(state: dict) -> str | None:
     return None
 
 
-def _get_sender_name_from_state(state: dict) -> str | None:
+def _get_sender_name_from_state(state: Mapping[str, Any]) -> str | None:
     if state.get("sender_name"):
         return str(state["sender_name"])
 
@@ -168,7 +177,7 @@ def _get_sender_name_from_state(state: dict) -> str | None:
     return None
 
 
-def _safe_completed_tasks_summary(state: dict) -> str:
+def _safe_completed_tasks_summary(state: Mapping[str, Any]) -> str:
     completed_tasks = state.get("completed_tasks", [])
     if not completed_tasks:
         return ""
@@ -186,7 +195,10 @@ def _safe_completed_tasks_summary(state: dict) -> str:
 # DB ACCESS — READ MODE
 # ────────────────────────────────────────────────────────
 
-def _search_messages(session, owner_id: str, query: str, sender_id: str | None = None) -> list[dict[str, Any]]:
+
+def _search_messages(
+    session: Session, owner_id: str, query: str, sender_id: str | None = None
+) -> list[dict[str, Any]]:
     sql = """
         SELECT id, sender_id, sender_name, sender_role, direction, content, created_at
         FROM public.messages
@@ -208,7 +220,9 @@ def _search_messages(session, owner_id: str, query: str, sender_id: str | None =
     return [dict(r) for r in rows]
 
 
-def _search_memory_entries(session, owner_id: str, query: str, sender_id: str | None = None) -> list[dict[str, Any]]:
+def _search_memory_entries(
+    session: Session, owner_id: str, query: str, sender_id: str | None = None
+) -> list[dict[str, Any]]:
     sql = """
         SELECT id, sender_id, sender_name, sender_role, memory_type, content, summary, tags, importance, created_at
         FROM public.memory_entries
@@ -233,7 +247,9 @@ def _search_memory_entries(session, owner_id: str, query: str, sender_id: str | 
     return [dict(r) for r in rows]
 
 
-def _format_retrieved_records(messages: list[dict[str, Any]], memories: list[dict[str, Any]]) -> str:
+def _format_retrieved_records(
+    messages: list[dict[str, Any]], memories: list[dict[str, Any]]
+) -> str:
     payload = {
         "messages": [
             {
@@ -272,9 +288,13 @@ def _format_retrieved_records(messages: list[dict[str, Any]], memories: list[dic
 # DB ACCESS — UPDATE MODE
 # ────────────────────────────────────────────────────────
 
-def _insert_memory_entries(session, records: list[dict[str, Any]]) -> None:
+
+def _insert_memory_entries(session: Session, records: list[dict[str, Any]]) -> None:
+    import uuid
+
     sql = text("""
         INSERT INTO public.memory_entries (
+            id,
             owner_id,
             sender_id,
             sender_name,
@@ -287,6 +307,7 @@ def _insert_memory_entries(session, records: list[dict[str, Any]]) -> None:
             created_at
         )
         VALUES (
+            :id,
             :owner_id,
             :sender_id,
             :sender_name,
@@ -301,11 +322,11 @@ def _insert_memory_entries(session, records: list[dict[str, Any]]) -> None:
     """)
 
     for record in records:
-        session.execute(sql, record)
+        session.execute(sql, {"id": uuid.uuid4(), **record})
 
 
 def _insert_memory_proposal(
-    session,
+    session: Session,
     *,
     owner_id: str,
     sender_id: str | None,
@@ -315,12 +336,12 @@ def _insert_memory_proposal(
     risk_level: RiskLevel,
     reason: str,
 ) -> str:
+    import uuid
+
     sql = text("""
         INSERT INTO public.memory_update_proposals (
+            id,
             owner_id,
-            sender_id,
-            sender_name,
-            sender_role,
             target_table,
             proposed_content,
             risk_level,
@@ -329,10 +350,8 @@ def _insert_memory_proposal(
             created_at
         )
         VALUES (
+            :id,
             :owner_id,
-            :sender_id,
-            :sender_name,
-            :sender_role,
             'memory_entries',
             CAST(:proposed_content AS jsonb),
             :risk_level,
@@ -346,22 +365,23 @@ def _insert_memory_proposal(
     row = session.execute(
         sql,
         {
+            "id": uuid.uuid4(),
             "owner_id": owner_id,
-            "sender_id": sender_id,
-            "sender_name": sender_name,
-            "sender_role": sender_role,
             "proposed_content": json.dumps(proposed_records, default=str),
             "risk_level": risk_level,
             "reason": reason,
         },
     ).fetchone()
 
+    if row is None:
+        raise ValueError("Failed to insert memory proposal")
     return str(row[0])
 
 
 # ────────────────────────────────────────────────────────
 # RISK + MEMORY BUILDING
 # ────────────────────────────────────────────────────────
+
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
@@ -461,7 +481,8 @@ def _calculate_risk(records: list[dict[str, Any]]) -> RiskLevel:
 # READ MODE
 # ────────────────────────────────────────────────────────
 
-def memory_read_node(task: SubTask) -> dict:
+
+def memory_read_node(task: SubTask) -> dict[str, list[dict[str, Any]]]:
     completed_task = dict(task)
     session = SessionLocal()
 
@@ -472,7 +493,9 @@ def memory_read_node(task: SubTask) -> dict:
 
         if not owner_id:
             completed_task["status"] = "failed"
-            completed_task["result"] = "Memory read failed: missing owner_id in task/injected_context."
+            completed_task["result"] = (
+                "Memory read failed: missing owner_id in task/injected_context."
+            )
             return {"completed_tasks": [completed_task]}
 
         if not description:
@@ -493,17 +516,23 @@ def memory_read_node(task: SubTask) -> dict:
             retrieved_records=retrieved_records,
         )
 
-        summary = structured_llm.invoke(prompt)
+        summary_raw = structured_llm.invoke(prompt)
+        if isinstance(summary_raw, MemoryReadSummary):
+            summary = summary_raw
+        elif isinstance(summary_raw, dict):
+            summary = MemoryReadSummary.model_validate(summary_raw)
+        else:
+            summary = MemoryReadSummary.model_validate(cast(BaseModel, summary_raw).model_dump())
 
         result_text = _json_dump(summary.model_dump())
-        
+
         agent_response = AgentResponse(
             status="success",
             confidence="high",
             result=result_text,
             facts=[],
             unknowns=[],
-            constraints=[]
+            constraints=[],
         )
 
         completed_task["status"] = "completed"
@@ -517,7 +546,7 @@ def memory_read_node(task: SubTask) -> dict:
             status="failed",
             confidence="low",
             result=f"Memory read error: {exc}",
-            unknowns=[str(exc)]
+            unknowns=[str(exc)],
         )
         completed_task["status"] = "failed"
         completed_task["result"] = agent_response.model_dump_json()
@@ -531,7 +560,8 @@ def memory_read_node(task: SubTask) -> dict:
 # UPDATE MODE
 # ────────────────────────────────────────────────────────
 
-def memory_update_node(state: dict) -> dict:
+
+def memory_update_node(state: dict[str, Any]) -> dict[str, Any]:
     session = SessionLocal()
     try:
         owner_id = _get_owner_id_from_state(state)
@@ -573,7 +603,15 @@ def memory_update_node(state: dict) -> dict:
             completed_tasks_summary=completed_tasks_summary,
         )
 
-        extracted = structured_llm.invoke(prompt)
+        extracted_raw = structured_llm.invoke(prompt)
+        if isinstance(extracted_raw, MemoryUpdateExtraction):
+            extracted = extracted_raw
+        elif isinstance(extracted_raw, dict):
+            extracted = MemoryUpdateExtraction.model_validate(extracted_raw)
+        else:
+            extracted = MemoryUpdateExtraction.model_validate(
+                cast(BaseModel, extracted_raw).model_dump()
+            )
 
         records = _build_memory_records(
             owner_id=owner_id,

@@ -12,18 +12,23 @@ from backend.db.engine import SessionLocal
 
 # ─── Memory Approval ───────────────────────────────────────────────
 
+
 def approve_memory(proposal_id: str):
     """Approve a memory update proposal — inserts records into memory_entries."""
     session = SessionLocal()
     try:
-        proposal = session.execute(
-            text("""
+        proposal = (
+            session.execute(
+                text("""
                 SELECT *
                 FROM public.memory_update_proposals
                 WHERE id = :id
             """),
-            {"id": proposal_id},
-        ).mappings().first()
+                {"id": proposal_id},
+            )
+            .mappings()
+            .first()
+        )
 
         if not proposal:
             raise ValueError("Proposal not found")
@@ -32,10 +37,13 @@ def approve_memory(proposal_id: str):
         if isinstance(proposed_content, str):
             proposed_content = json.loads(proposed_content)
 
+        import uuid
+
         for record in proposed_content:
             session.execute(
                 text("""
                     INSERT INTO public.memory_entries (
+                        id,
                         owner_id,
                         sender_id,
                         sender_name,
@@ -48,6 +56,7 @@ def approve_memory(proposal_id: str):
                         created_at
                     )
                     VALUES (
+                        :id,
                         :owner_id,
                         :sender_id,
                         :sender_name,
@@ -61,6 +70,7 @@ def approve_memory(proposal_id: str):
                     )
                 """),
                 {
+                    "id": uuid.uuid4(),
                     "owner_id": proposal["owner_id"],
                     "sender_id": record.get("sender_id"),
                     "sender_name": record.get("sender_name"),
@@ -105,14 +115,18 @@ def reject_memory(proposal_id: str):
     """Reject a memory update proposal."""
     session = SessionLocal()
     try:
-        proposal = session.execute(
-            text("""
+        proposal = (
+            session.execute(
+                text("""
                 SELECT id
                 FROM public.memory_update_proposals
                 WHERE id = :id
             """),
-            {"id": proposal_id},
-        ).mappings().first()
+                {"id": proposal_id},
+            )
+            .mappings()
+            .first()
+        )
 
         if not proposal:
             raise ValueError("Proposal not found")
@@ -147,36 +161,44 @@ def reject_memory(proposal_id: str):
 
 # ─── Reply Approval (Risk Flow) ───────────────────────────────────
 
+
 def hold_reply(
     owner_id: str,
     reply_text: str,
     risk_level: str,
-    risk_flags: list,
-    sender_id: str = None,
-    sender_name: str = None,
-    sender_role: str = None,
-    thread_id: str = None,
+    risk_flags: list[str],
+    approval_rule_flags: list[str] | None = None,
+    sender_id: str | None = None,
+    sender_name: str | None = None,
+    sender_role: str | None = None,
+    thread_id: str | None = None,
+    trace_id: str | None = None,
+    raw_message: str | None = None,
 ) -> str:
     """
     Save a held reply to the database when risk is MEDIUM or HIGH.
     Also creates a pending_approvals entry for the dashboard.
     Returns the held_reply_id.
     """
+    import uuid
+
     session = SessionLocal()
     try:
+        new_id = uuid.uuid4()
         result = session.execute(
             text("""
                 INSERT INTO public.held_replies (
-                    owner_id, thread_id, sender_id, sender_name,
+                    id, owner_id, thread_id, sender_id, sender_name,
                     sender_role, reply_text, risk_level, risk_flags, status
                 )
                 VALUES (
-                    :owner_id, :thread_id, :sender_id, :sender_name,
+                    :id, :owner_id, :thread_id, :sender_id, :sender_name,
                     :sender_role, :reply_text, :risk_level, CAST(:risk_flags AS jsonb), 'pending'
                 )
                 RETURNING id
             """),
             {
+                "id": new_id,
                 "owner_id": owner_id,
                 "thread_id": thread_id,
                 "sender_id": sender_id,
@@ -193,10 +215,11 @@ def hold_reply(
         session.execute(
             text("""
                 INSERT INTO public.pending_approvals (
-                    owner_id, title, sender, preview,
+                    id, owner_id, title, sender, preview,
                     proposal_type, risk_level, status
                 )
                 VALUES (
+                    :id,
                     :owner_id,
                     :title,
                     :sender,
@@ -207,11 +230,42 @@ def hold_reply(
                 )
             """),
             {
+                "id": uuid.uuid4(),
                 "owner_id": owner_id,
                 "title": f"Reply requires approval ({risk_level} risk)",
                 "sender": sender_name or "Unknown",
                 "preview": reply_text[:200],
                 "risk_level": risk_level,
+            },
+        )
+
+        session.execute(
+            text("""
+                INSERT INTO public.reply_review_records (
+                    id, owner_id, trace_id, thread_id, sender_id, sender_name, sender_role,
+                    raw_message, reply_text, risk_level, risk_flags, approval_rule_flags,
+                    requires_approval, final_decision, held_reply_id
+                )
+                VALUES (
+                    :id, :owner_id, :trace_id, :thread_id, :sender_id, :sender_name, :sender_role,
+                    :raw_message, :reply_text, :risk_level, CAST(:risk_flags AS jsonb), CAST(:approval_rule_flags AS jsonb),
+                    true, 'held_pending_review', :held_reply_id
+                )
+            """),
+            {
+                "id": uuid.uuid4(),
+                "owner_id": owner_id,
+                "trace_id": trace_id,
+                "thread_id": thread_id,
+                "sender_id": sender_id,
+                "sender_name": sender_name,
+                "sender_role": sender_role,
+                "raw_message": raw_message,
+                "reply_text": reply_text,
+                "risk_level": risk_level,
+                "risk_flags": json.dumps(risk_flags),
+                "approval_rule_flags": json.dumps(approval_rule_flags or []),
+                "held_reply_id": held_reply_id,
             },
         )
 
@@ -225,40 +279,60 @@ def hold_reply(
         session.close()
 
 
-def approve_reply(held_reply_id: str) -> dict:
+def approve_reply(held_reply_id: str) -> dict[str, str]:
     """Approve a held reply — marks as approved and returns the reply text."""
     session = SessionLocal()
     try:
-        result = session.execute(
-            text("""
+        result = (
+            session.execute(
+                text("""
                 UPDATE public.held_replies
                 SET status = 'approved', reviewed_at = now()
                 WHERE id = :id
                 RETURNING reply_text, owner_id, sender_id, sender_name, sender_role
             """),
-            {"id": held_reply_id},
-        ).mappings().first()
+                {"id": held_reply_id},
+            )
+            .mappings()
+            .first()
+        )
 
         if not result:
             raise ValueError("Held reply not found")
+
+        import uuid
+
+        message_id = uuid.uuid4()
 
         # Save to messages table since it's now approved to be sent
         session.execute(
             text("""
                 INSERT INTO public.messages (
-                    owner_id, sender_id, sender_name, sender_role, direction, content
+                    id, owner_id, sender_id, sender_name, sender_role, direction, content
                 )
                 VALUES (
-                    :owner_id, :sender_id, :sender_name, :sender_role, 'outbound', :content
+                    :id, :owner_id, :sender_id, :sender_name, :sender_role, 'outbound', :content
                 )
             """),
             {
+                "id": message_id,
                 "owner_id": result["owner_id"],
                 "sender_id": result["sender_id"],
                 "sender_name": result["sender_name"],
                 "sender_role": result["sender_role"],
-                "content": result["reply_text"]
-            }
+                "content": result["reply_text"],
+            },
+        )
+
+        session.execute(
+            text("""
+                UPDATE public.reply_review_records
+                SET final_decision = 'approved_and_sent',
+                    message_id = :message_id,
+                    reviewed_at = now()
+                WHERE held_reply_id = :held_reply_id
+            """),
+            {"held_reply_id": held_reply_id, "message_id": message_id},
         )
 
         session.commit()
@@ -278,12 +352,13 @@ def approve_reply(held_reply_id: str) -> dict:
         session.close()
 
 
-def reject_reply(held_reply_id: str, reason: str = "") -> dict:
+def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
     """Reject a held reply — marks as rejected."""
     session = SessionLocal()
     try:
-        result = session.execute(
-            text("""
+        result = (
+            session.execute(
+                text("""
                 UPDATE public.held_replies
                 SET status = 'rejected',
                     reviewer_notes = :reason,
@@ -291,15 +366,123 @@ def reject_reply(held_reply_id: str, reason: str = "") -> dict:
                 WHERE id = :id
                 RETURNING id
             """),
-            {"id": held_reply_id, "reason": reason},
-        ).mappings().first()
+                {"id": held_reply_id, "reason": reason},
+            )
+            .mappings()
+            .first()
+        )
 
         if not result:
             raise ValueError("Held reply not found")
 
+        session.execute(
+            text("""
+                UPDATE public.reply_review_records
+                SET final_decision = 'rejected',
+                    reviewer_reason = :reason,
+                    reviewed_at = now()
+                WHERE held_reply_id = :held_reply_id
+            """),
+            {"held_reply_id": held_reply_id, "reason": reason},
+        )
+
         session.commit()
         return {"status": "rejected", "held_reply_id": str(result["id"])}
 
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def review_reply_record(
+    review_record_id: str, review_label: str, reviewer_reason: str = ""
+) -> dict[str, str]:
+    session = SessionLocal()
+    try:
+        result = (
+            session.execute(
+                text("""
+                UPDATE public.reply_review_records
+                SET review_label = :review_label,
+                    reviewer_reason = CASE
+                        WHEN :reviewer_reason = '' THEN reviewer_reason
+                        ELSE :reviewer_reason
+                    END,
+                    reviewed_at = now()
+                WHERE id = :id
+                RETURNING id
+            """),
+                {
+                    "id": review_record_id,
+                    "review_label": review_label,
+                    "reviewer_reason": reviewer_reason,
+                },
+            )
+            .mappings()
+            .first()
+        )
+        if not result:
+            raise ValueError("Reply review record not found")
+        session.commit()
+        return {"status": "reviewed", "reply_review_record_id": str(result["id"])}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def record_auto_sent_reply(
+    *,
+    owner_id: str,
+    trace_id: str | None,
+    thread_id: str | None,
+    sender_id: str | None,
+    sender_name: str | None,
+    sender_role: str | None,
+    raw_message: str | None,
+    reply_text: str,
+    risk_level: str,
+    risk_flags: list[str],
+    approval_rule_flags: list[str] | None,
+    requires_approval: bool,
+    message_id: str,
+) -> None:
+    session = SessionLocal()
+    try:
+        session.execute(
+            text("""
+                INSERT INTO public.reply_review_records (
+                    id, owner_id, trace_id, thread_id, sender_id, sender_name, sender_role,
+                    raw_message, reply_text, risk_level, risk_flags, approval_rule_flags,
+                    requires_approval, final_decision, message_id
+                )
+                VALUES (
+                    :id, :owner_id, :trace_id, :thread_id, :sender_id, :sender_name, :sender_role,
+                    :raw_message, :reply_text, :risk_level, CAST(:risk_flags AS jsonb), CAST(:approval_rule_flags AS jsonb),
+                    :requires_approval, 'auto_sent', :message_id
+                )
+            """),
+            {
+                "id": __import__("uuid").uuid4(),
+                "owner_id": owner_id,
+                "trace_id": trace_id,
+                "thread_id": thread_id,
+                "sender_id": sender_id,
+                "sender_name": sender_name,
+                "sender_role": sender_role,
+                "raw_message": raw_message,
+                "reply_text": reply_text,
+                "risk_level": risk_level,
+                "risk_flags": json.dumps(risk_flags),
+                "approval_rule_flags": json.dumps(approval_rule_flags or []),
+                "requires_approval": requires_approval,
+                "message_id": message_id,
+            },
+        )
+        session.commit()
     except Exception:
         session.rollback()
         raise

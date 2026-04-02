@@ -12,11 +12,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class Settings(BaseSettings):
     """Central configuration — all values must be set in .env file."""
 
     # ── Database (Supabase — unified) ────────────────────────
     SUPABASE_DB_URL: str = ""
+    OWNER_ID: str = "4c116430-f683-4a8a-91f7-546fa8bc5d76"
 
     # ── LLM ───────────────────────────────────────────────────
     AI_PROVIDER: str = "auto"  # auto | openai | gemini
@@ -39,15 +41,15 @@ class Settings(BaseSettings):
 
     # ── Policy Agent RAG ──────────────────────────────────────
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # 1536 dims — matches Vector(1536)
-    POLICY_CHUNK_SIZE: int = 2000    # characters per chunk (~500 tokens)
+    POLICY_CHUNK_SIZE: int = 2000  # characters per chunk (~500 tokens)
     POLICY_CHUNK_OVERLAP: int = 200  # overlap between consecutive chunks
-    POLICY_TOP_K: int = 5            # chunks retrieved from pgvector before reranking
-    POLICY_TOP_N: int = 3            # chunks kept after reranking
+    POLICY_TOP_K: int = 5  # chunks retrieved from pgvector before reranking
+    POLICY_TOP_N: int = 3  # chunks kept after reranking
     RERANKER_MODEL: str = "mixedbread-ai/mxbai-rerank-base-v1"
-    HF_TOKEN: str = ""               # optional — avoids HuggingFace Hub rate limits
+    HF_TOKEN: str = ""  # optional — avoids HuggingFace Hub rate limits
 
     # ── Retrieval Agent RAG ───────────────────────────────────
-    BUSINESS_TOP_K: int = 5          # rows returned from business data semantic search
+    BUSINESS_TOP_K: int = 5  # rows returned from business data semantic search
 
     # ── External Research ─────────────────────────────────────
     TAVILY_API_KEY: str = ""
@@ -60,7 +62,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     MAX_REPLAN_CYCLES: int = 2
     MAX_PARALLEL_TASKS: int = 4
-    
+
     # ── Observability ─────────────────────────────────────────
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""
@@ -70,7 +72,7 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
-        "extra": "ignore"
+        "extra": "ignore",
     }
 
 

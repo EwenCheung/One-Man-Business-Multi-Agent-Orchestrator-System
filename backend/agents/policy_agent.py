@@ -14,7 +14,7 @@ Pipeline
 """
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
@@ -22,13 +22,20 @@ from pydantic import BaseModel, Field
 from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
 from backend.models.agent_response import AgentResponse
-from backend.tools.policy_tools import rerank_chunks, search_policy_chunks
+from backend.tools.policy_tools import (
+    infer_policy_categories,
+    merge_policy_candidates,
+    rerank_chunks,
+    search_policy_chunks,
+    search_policy_chunks_lexical,
+)
 from backend.utils.llm_provider import get_chat_llm
 
 logger = logging.getLogger(__name__)
 
 
 # ─── Output schema ─────────────────────────────────────────────────
+
 
 class PolicyDecision(BaseModel):
     """Structured policy evaluation result produced by the LLM."""
@@ -60,7 +67,7 @@ class PolicyDecision(BaseModel):
             "be overridden even with approval."
         )
     )
-    confidence: str = Field(
+    confidence: Literal["high", "medium", "low"] = Field(
         description=(
             "'high' — one or more excerpts directly address the question; "
             "'medium' — excerpts are relevant but require interpretation; "
@@ -102,7 +109,8 @@ based solely on the policy excerpts provided below.
 
 # ─── Private helpers ──────────────────────────────────────────────────────────
 
-def _retrieve(session, description: str, sender_role: str) -> list[dict]:
+
+def _retrieve(session, description: str, sender_role: str) -> list[dict[str, object]]:
     """
     Run the two-stage retrieval pipeline for a policy question.
 
@@ -122,8 +130,23 @@ def _retrieve(session, description: str, sender_role: str) -> list[dict]:
         Reranked list of chunk dicts (up to POLICY_TOP_N entries).
     """
     logger.debug("PolicyAgent: searching chunks for role=%s | query='%s'", sender_role, description)
-    candidates = search_policy_chunks(session, description)
-    logger.debug("PolicyAgent: retrieved %d candidates", len(candidates))
+    categories = infer_policy_categories(description, sender_role)
+    semantic_candidates = search_policy_chunks(
+        session,
+        description,
+        category=categories[0] if len(categories) == 1 else None,
+        categories=categories or None,
+    )
+    lexical_candidates = search_policy_chunks_lexical(
+        session, description, categories=categories or None
+    )
+    candidates = merge_policy_candidates(semantic_candidates, lexical_candidates)
+    logger.debug(
+        "PolicyAgent: retrieved %d merged candidates (semantic=%d lexical=%d)",
+        len(candidates),
+        len(semantic_candidates),
+        len(lexical_candidates),
+    )
 
     ranked = rerank_chunks(description, candidates)
     logger.debug("PolicyAgent: reranked to %d chunks", len(ranked))
@@ -133,7 +156,7 @@ def _retrieve(session, description: str, sender_role: str) -> list[dict]:
 
 def _evaluate(
     description: str,
-    chunks: list[dict],
+    chunks: list[dict[str, object]],
     sender_role: str,
     llm,
 ) -> PolicyDecision:
@@ -159,6 +182,7 @@ def _evaluate(
         excerpts = "\n\n---\n\n".join(
             f"[{i + 1}] (source: {c['source_file']}, page {c['page_number']},"
             f" section: {c.get('subheading') or 'N/A'},"
+            f" retrieval_mode={c.get('retrieval_mode', 'semantic')},"
             f" hard_constraint={c['hard_constraint']})\n{c['chunk_text']}"
             for i, c in enumerate(chunks)
         )
@@ -174,9 +198,6 @@ def _evaluate(
 
     try:
         decision: PolicyDecision = structured_llm.invoke(formatted)
-        # If any retrieved chunk is a hard constraint, override ground truth 
-        if any(c["hard_constraint"] for c in chunks):
-            decision.hard_constraint = True
         return decision
     except Exception as exc:
         logger.error("PolicyAgent: evaluation failed — %s", exc)
@@ -217,7 +238,8 @@ def _format_result(decision: PolicyDecision) -> str:
 
 # ─── Public entry point ───────────────────────────────────────────────────────
 
-def policy_agent(task: SubTask) -> dict:
+
+def policy_agent(task: SubTask) -> dict[str, list[dict[str, object]]]:
     """
     Execute a policy lookup SubTask assigned by the Orchestrator.
 
@@ -259,7 +281,9 @@ def policy_agent(task: SubTask) -> dict:
 
         logger.info(
             "PolicyAgent: task '%s' complete | verdict=%s | confidence=%s",
-            task.get("task_id"), decision.verdict, decision.confidence,
+            task.get("task_id"),
+            decision.verdict,
+            decision.confidence,
         )
 
         agent_response = AgentResponse(
@@ -268,7 +292,9 @@ def policy_agent(task: SubTask) -> dict:
             result=result_text,
             facts=decision.supporting_rules,
             unknowns=[decision.caveat] if decision.caveat else [],
-            constraints=["HARD CONSTRAINT: " + r for r in decision.supporting_rules] if decision.hard_constraint else []
+            constraints=["HARD CONSTRAINT: " + r for r in decision.supporting_rules]
+            if decision.hard_constraint
+            else [],
         )
 
         completed_task["status"] = "completed"
@@ -280,7 +306,7 @@ def policy_agent(task: SubTask) -> dict:
             status="failed",
             confidence="low",
             result=f"Policy agent failed: {exc}",
-            unknowns=[str(exc)]
+            unknowns=[str(exc)],
         )
         completed_task["status"] = "failed"
         completed_task["result"] = agent_response.model_dump_json()

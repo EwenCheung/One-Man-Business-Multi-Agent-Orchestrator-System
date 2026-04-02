@@ -20,7 +20,7 @@ Coverage:
     8. Not covered — question outside all policy domains
     9. Role context  — same question, different sender roles
 
-Usage: 
+Usage:
     uv run python tests/test_policy_agent.py
 """
 
@@ -28,6 +28,7 @@ from backend.agents.policy_agent import policy_agent
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def make_task(task_id: str, description: str, sender_role: str = "customer") -> dict:
     """Build a SubTask dict simluating Orchestrator"""
@@ -43,6 +44,9 @@ def make_task(task_id: str, description: str, sender_role: str = "customer") -> 
     }
 
 
+import json
+
+
 def print_result(label: str, output: dict) -> None:
     """Print test result."""
     task = output["completed_tasks"][0]
@@ -52,20 +56,35 @@ def print_result(label: str, output: dict) -> None:
     print(f"  Role:   {task['injected_context'].get('sender_role', 'unknown')}")
     print(f"  Status: {task['status']}")
     print(f"  Result:\n")
-    for line in task["result"].splitlines():
+
+    result_str = task["result"]
+    try:
+        data = json.loads(result_str)
+        text_content = data.get("result", result_str)
+    except json.JSONDecodeError:
+        text_content = result_str
+
+    for line in text_content.splitlines():
         print(f"    {line}")
 
 
 def _verdict(output: dict) -> str:
     """Extract the verdict line from the result text."""
-    result = output["completed_tasks"][0]["result"]
-    for line in result.splitlines():
-        if line.startswith("Verdict:"):
+    result_str = output["completed_tasks"][0]["result"]
+    try:
+        data = json.loads(result_str)
+        text_content = data.get("result", result_str)
+    except json.JSONDecodeError:
+        text_content = result_str
+
+    for line in text_content.splitlines():
+        if line.strip().startswith("Verdict:"):
             return line.split(":", 1)[1].strip().lower()
     return ""
 
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
+
 
 def test_returns_window():
     """Customer asks how long they have to return a product."""
@@ -77,7 +96,6 @@ def test_returns_window():
     output = policy_agent(task)
     assert output["completed_tasks"][0]["status"] == "completed"
     assert _verdict(output) in {"allowed", "not_covered"}
-    return output
 
 
 def test_discount_stacking_disallowed():
@@ -91,7 +109,6 @@ def test_discount_stacking_disallowed():
     assert output["completed_tasks"][0]["status"] == "completed"
     # Stacking discounts is explicitly prohibited — expect disallowed
     assert _verdict(output) in {"disallowed", "not_covered"}
-    return output
 
 
 def test_data_privacy_customer():
@@ -103,7 +120,6 @@ def test_data_privacy_customer():
     )
     output = policy_agent(task)
     assert output["completed_tasks"][0]["status"] == "completed"
-    return output
 
 
 def test_supplier_payment_terms():
@@ -115,7 +131,6 @@ def test_supplier_payment_terms():
     )
     output = policy_agent(task)
     assert output["completed_tasks"][0]["status"] == "completed"
-    return output
 
 
 def test_partner_revenue_share():
@@ -127,7 +142,6 @@ def test_partner_revenue_share():
     )
     output = policy_agent(task)
     assert output["completed_tasks"][0]["status"] == "completed"
-    return output
 
 
 def test_hard_constraint_price_floor():
@@ -144,7 +158,6 @@ def test_hard_constraint_price_floor():
     assert output["completed_tasks"][0]["status"] == "completed"
     # Discounts without owner approval violate the discount authority rule
     assert _verdict(output) in {"disallowed", "requires_approval", "not_covered"}
-    return output
 
 
 def test_requires_approval_large_discount():
@@ -159,7 +172,6 @@ def test_requires_approval_large_discount():
     )
     output = policy_agent(task)
     assert output["completed_tasks"][0]["status"] == "completed"
-    return output
 
 
 def test_not_covered():
@@ -173,7 +185,6 @@ def test_not_covered():
     assert output["completed_tasks"][0]["status"] == "completed"
     # No policy covers employee benefits — should be not_covered or low confidence
     assert _verdict(output) in {"not_covered", "allowed", "disallowed", "requires_approval"}
-    return output
 
 
 def test_role_affects_context():
@@ -181,29 +192,27 @@ def test_role_affects_context():
     question = "Can our agreement be terminated early, and what are the conditions?"
 
     supplier_task = make_task("pol-09a", question, sender_role="supplier")
-    partner_task  = make_task("pol-09b", question, sender_role="partner")
+    partner_task = make_task("pol-09b", question, sender_role="partner")
 
     supplier_output = policy_agent(supplier_task)
-    partner_output  = policy_agent(partner_task)
+    partner_output = policy_agent(partner_task)
 
     assert supplier_output["completed_tasks"][0]["status"] == "completed"
     assert partner_output["completed_tasks"][0]["status"] == "completed"
-
-    return supplier_output, partner_output
 
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     tests = [
-        ("Returns — Return Window",            test_returns_window),
-        ("Pricing — Discount Stacking",        test_discount_stacking_disallowed),
-        ("Privacy — Data Held on Customer",    test_data_privacy_customer),
-        ("Supplier — Payment Terms",           test_supplier_payment_terms),
-        ("Partner — Revenue Share",            test_partner_revenue_share),
-        ("Hard Constraint — Price Floor",      test_hard_constraint_price_floor),
+        ("Returns — Return Window", test_returns_window),
+        ("Pricing — Discount Stacking", test_discount_stacking_disallowed),
+        ("Privacy — Data Held on Customer", test_data_privacy_customer),
+        ("Supplier — Payment Terms", test_supplier_payment_terms),
+        ("Partner — Revenue Share", test_partner_revenue_share),
+        ("Hard Constraint — Price Floor", test_hard_constraint_price_floor),
         ("Approval Required — Large Discount", test_requires_approval_large_discount),
-        ("Not Covered — Gym Membership",       test_not_covered),
+        ("Not Covered — Gym Membership", test_not_covered),
     ]
 
     for label, test_fn in tests:
@@ -227,7 +236,7 @@ if __name__ == "__main__":
     try:
         s_out, p_out = test_role_affects_context()
         print_result("Role Context — Supplier", s_out)
-        print_result("Role Context — Partner",  p_out)
+        print_result("Role Context — Partner", p_out)
     except Exception as exc:
         print(f"  ERROR: {exc}")
 

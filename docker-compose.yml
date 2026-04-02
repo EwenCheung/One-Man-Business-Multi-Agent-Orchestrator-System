@@ -1,17 +1,4 @@
 services:
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: multi-agent-orchestrator
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-business_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-business_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-business_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
   backend:
     build: .
     container_name: multi-agent-backend
@@ -19,10 +6,12 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-business_admin}:${POSTGRES_PASSWORD:-business_pass}@db:5432/${POSTGRES_DB:-business_db}
+      - SUPABASE_DB_URL=${SUPABASE_DB_URL}
+      - DATABASE_URL=${SUPABASE_DB_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-    depends_on:
-      - db
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
 
   frontend:
     build: frontend/
@@ -34,6 +23,3 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
-
-volumes:
-  pgdata:

@@ -27,6 +27,7 @@ and role-appropriate tone constraints from SOUL.md and RULE.md.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 class ReplyOutput(BaseModel):
     """Typed output from the Reply Agent LLM call."""
+
     reply_text: str = Field(
         description=(
             "The final, ready-to-send reply. Must fully embody the SOUL persona "
@@ -68,7 +70,7 @@ class ReplyOutput(BaseModel):
             "by sub-agent results. Each entry is a short phrase identifying the claim. "
             "Examples: ['ships within 3 days — not confirmed by retriever', "
             "'price quoted — not verified by policy agent']. Empty if all claims verified."
-        )
+        ),
     )
     tone_flags: list[str] = Field(
         default_factory=list,
@@ -80,7 +82,7 @@ class ReplyOutput(BaseModel):
             "'defensive' — tone that may escalate rather than de-escalate; "
             "'speculative' — forward-looking statements not grounded in confirmed data. "
             "Empty list if no anomalies detected."
-        )
+        ),
     )
 
 
@@ -89,27 +91,25 @@ _TONE_INSTRUCTIONS = {
 Tone: Polite, professional, and genuinely helpful.
 - Prioritise the customer's satisfaction and clarity.
 - Resolve complaints swiftly and take ownership where appropriate.
-- Explain things in plain language — avoid jargon.""",
-
+- Explain things in plain language — avoid jargon.
+- For price objections, negotiate using verified bundle, quantity, stock, and policy guidance before escalating.
+- Never reveal raw cost, internal margin, or internal approval thresholds to the customer.""",
     "supplier": """\
 Tone: Firm, direct, and professionally confident.
 - Negotiate to maximise our profit margin and secure the best supply terms.
 - Be respectful but never desperate or apologetic about our position.
 - Use volume commitments and contract terms as leverage where appropriate.""",
-
     "investor": """\
 Tone: Promotional, optimistic, and engaging.
 - Lead with our strongest ROI and growth metrics.
 - Frame every data point as evidence of momentum and future potential.
 - Project confidence in the business trajectory.
 - Invite further engagement: calls, detailed reports, next steps.""",
-
     "partner": """\
 Tone: Professional, optimistic, and commercially minded.
 - Frame the conversation as a mutually beneficial collaboration.
 - Protect our profit share and operational boundaries firmly but warmly.
 - Reference existing agreement terms when relevant.""",
-
     "owner": """\
 Tone: Motivating, clear, and constructively authoritative.
 - Provide clear expectations and actionable direction.
@@ -147,6 +147,8 @@ Universal (apply to every reply regardless of role):
 - Be polite but do not apologise excessively unless a clear failure occurred on our end.
 - When you do not know the answer, do not guess. Commit to verifying and following up.
 - You are representing a human founder. Do not introduce yourself as an AI unless explicitly required by compliance.
+- For discount and bundle requests, use verified internal negotiation guidance first; escalate only if the requested terms exceed the approved range.
+- Never disclose cost price, internal margin, or internal negotiation limits directly.
 
 The relationship of the sender to the owner is {sender_role}. Layer this posture on top of the universal guidelines:
 {tone_instructions}
@@ -187,6 +189,11 @@ Before writing, briefly consider:
 • Which verified findings directly address it?
 • Are there gaps that require a follow-up commitment?
 
+Negotiation rule:
+- If verified internal negotiation guidance says approval_required=false, present the verified offer directly and do NOT ask for owner approval.
+- If verified internal negotiation guidance says approval_required=true, do NOT promise the requested concession; state that it requires review.
+- When negotiation guidance provides a customer-safe summary, prefer it over improvising your own pricing logic.
+
 Then draft the reply. Close with a concrete next step or clear call to action.
 """
 
@@ -205,6 +212,12 @@ def _format_completed_tasks(tasks: list[SubTask]) -> str:
         return "No sub-agent results available."
     lines = []
     for t in tasks:
+        if t.get("internal_only"):
+            lines.append(
+                f"Task {t['task_id']} [INTERNAL ANALYSIS]: {t['description']}\n"
+                f"Result:\n{t.get('public_summary', 'Internal analysis completed; sensitive details redacted.')}"
+            )
+            continue
         lines.append(
             f"Task {t['task_id']} [{t['assignee'].upper()}]: {t['description']}\n"
             f"Result:\n{t['result']}"
@@ -212,7 +225,7 @@ def _format_completed_tasks(tasks: list[SubTask]) -> str:
     return "\n\n──────────────────────────────\n\n".join(lines)
 
 
-def _format_short_term_memory(history: list[dict]) -> str:
+def _format_short_term_memory(history: list[dict[str, str]]) -> str:
     """Render recent message history as a readable transcript.
 
     Args:
@@ -225,7 +238,7 @@ def _format_short_term_memory(history: list[dict]) -> str:
     if not history:
         return "No recent conversation history."
     lines = []
-    for entry in history[-8:]:   # Cap at last 8 turns to stay within context
+    for entry in history[-8:]:  # Cap at last 8 turns to stay within context
         role = entry.get("role", "unknown").capitalize()
         content = entry.get("content", "")
         lines.append(f"{role}: {content}")
@@ -234,7 +247,7 @@ def _format_short_term_memory(history: list[dict]) -> str:
 
 def _get_tone_instructions(sender_role: str) -> str:
     """Return tone instructions for the given sender role (case-insensitive).
-    
+
     Args:
         sender_role: The sender's role string from ``PipelineState.sender_role``
             (e.g. ``"customer"``, ``"supplier"``, ``"investor"``).
@@ -246,7 +259,7 @@ def _get_tone_instructions(sender_role: str) -> str:
     return _TONE_INSTRUCTIONS.get(sender_role.lower().strip(), _DEFAULT_TONE)
 
 
-def reply_agent(state: PipelineState) -> dict:
+def reply_agent(state: PipelineState) -> dict[str, object]:
     """
     Generate a final, role-aware, SOUL-grounded reply. Reads all completed sub-agent
     task results from the state and produces a single ready-to-send reply.
@@ -271,20 +284,23 @@ def reply_agent(state: PipelineState) -> dict:
         - ``"confidence_note"`` (str): Internal confidence note for the
           Orchestrator describing what was and was not verified.
     """
-    role            = state.get("sender_role", "unknown")
-    sender_name     = state.get("sender_name", "there")
-    intent_label    = state.get("intent_label", "unknown")
-    urgency_level   = state.get("urgency_level", "normal")
-    raw_message     = state.get("raw_message", "")
+    role = state.get("sender_role", "unknown")
+    sender_name = state.get("sender_name", "there")
+    intent_label = state.get("intent_label", "unknown")
+    urgency_level = state.get("urgency_level", "normal")
+    raw_message = state.get("raw_message", "")
     completed_tasks = state.get("completed_tasks", [])
-    soul_context    = state.get("soul_context", "")
-    rules_context   = state.get("rules_context", "")
-    long_term_mem   = state.get("long_term_memory", "No long-term memory available.")
-    short_term_mem  = state.get("short_term_memory", [])
+    soul_context = state.get("soul_context", "")
+    rules_context = state.get("rules_context", "")
+    long_term_mem = state.get("long_term_memory", "No long-term memory available.")
+    short_term_mem = state.get("short_term_memory", [])
 
     logger.info(
         "ReplyAgent: drafting reply | role=%s intent=%s urgency=%s tasks=%d",
-        role, intent_label, urgency_level, len(completed_tasks),
+        role,
+        intent_label,
+        urgency_level,
+        len(completed_tasks),
     )
 
     prompt = PromptTemplate.from_template(_REPLY_PROMPT)
@@ -306,14 +322,20 @@ def reply_agent(state: PipelineState) -> dict:
     reply_llm = llm.with_structured_output(ReplyOutput)
 
     try:
-        output = reply_llm.invoke(formatted_prompt)
+        output_raw = reply_llm.invoke(formatted_prompt)
+        if isinstance(output_raw, ReplyOutput):
+            output = output_raw
+        elif isinstance(output_raw, dict):
+            output = ReplyOutput.model_validate(output_raw)
+        else:
+            output = ReplyOutput.model_validate(cast(Any, output_raw).model_dump())
         logger.info("ReplyAgent: reply drafted successfully for role=%s", role)
         return {
-            "reply_text":        output.reply_text,
-            "confidence_note":   output.confidence_note,
-            "confidence_level":  output.confidence_level,
+            "reply_text": output.reply_text,
+            "confidence_note": output.confidence_note,
+            "confidence_level": output.confidence_level,
             "unverified_claims": output.unverified_claims,
-            "tone_flags":        output.tone_flags,
+            "tone_flags": output.tone_flags,
         }
     except Exception as exc:
         logger.error("ReplyAgent: LLM call failed — %s", exc)
@@ -323,8 +345,8 @@ def reply_agent(state: PipelineState) -> dict:
                 "I need a moment to verify some details before I can give you a complete answer. "
                 "I will follow up with you shortly."
             ),
-            "confidence_note":   f"Reply Agent LLM call failed: {exc}. Fallback acknowledgement sent.",
-            "confidence_level":  "low",
+            "confidence_note": f"Reply Agent LLM call failed: {exc}. Fallback acknowledgement sent.",
+            "confidence_level": "low",
             "unverified_claims": [],
-            "tone_flags":        [],
+            "tone_flags": [],
         }
