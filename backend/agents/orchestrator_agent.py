@@ -14,9 +14,13 @@ from langchain_core.prompts import PromptTemplate
 
 from backend.config import settings
 from backend.graph.state import PipelineState
-from backend.utils.context_compression import compress_context
+from backend.utils.context_compression import compress_context, reset_circuit_breaker
 from backend.utils.llm_provider import get_chat_llm
-from backend.utils.pipeline_guards import check_replan_limit, check_parallel_task_limit
+from backend.utils.pipeline_guards import (
+    check_replan_limit,
+    check_parallel_task_limit,
+    reset_permission_denials,
+)
 
 
 # ── SCHEMAS ────────────────────────────────────────────────────
@@ -191,6 +195,11 @@ def orchestrator_agent(state: dict[str, Any]) -> dict[str, Any]:
     completed_tasks = state.get("completed_tasks", [])
     sender_role = state.get("sender_role", "")
 
+    # Reset per-run circuit breakers on the first orchestrator call of a new pipeline run
+    if replan_count == 0:
+        reset_circuit_breaker()
+        reset_permission_denials()
+
     if _is_discount_request(raw_message):
         has_retriever = _has_task_result(completed_tasks, "retriever")
         has_policy = _has_task_result(completed_tasks, "policy")
@@ -352,8 +361,11 @@ def orchestrator_agent(state: dict[str, Any]) -> dict[str, Any]:
     # 4. Harness Constraints & Fan-Out Mapping
     active_tasks = []
 
-    # Apply parallel task guard limit (e.g., max 4 parallel sub-agents)
-    sanitized_tasks = cast(list[TaskDef], check_parallel_task_limit(cast(Any, decision.tasks)))
+    # Apply parallel task guard limit (respects settings.MAX_PARALLEL_TASKS)
+    sanitized_tasks = cast(
+        list[TaskDef],
+        check_parallel_task_limit(cast(Any, decision.tasks), max_tasks=settings.MAX_PARALLEL_TASKS),
+    )
 
     # Build the task DAG payload
     for t in sanitized_tasks:

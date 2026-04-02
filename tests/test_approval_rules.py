@@ -1,5 +1,35 @@
+import json
+
+import pytest
+
+from backend.models.agent_response import AgentResponse
 from backend.nodes.approval_rules import approval_rule_node
 
+
+def _make_discount_task(max_discount_pct: float, approval_required: bool = False) -> dict:
+    """Build a completed retriever task with a properly serialised AgentResponse."""
+    inner_result = json.dumps(
+        {
+            "max_discount_pct": max_discount_pct,
+            "recommended_discount_pct": max_discount_pct,
+            "approval_required": approval_required,
+        }
+    )
+    result_json = AgentResponse(
+        status="success",
+        confidence="high",
+        result=inner_result,
+        facts=[],
+        unknowns=[],
+        constraints=[],
+    ).model_dump_json()
+    return {
+        "task_id": "1",
+        "assignee": "retriever",
+        "status": "completed",
+        "result": result_json,
+        "description": "Evaluate discount request",
+    }
 
 def test_discount_and_waiver_trigger_approval_rules():
     result = approval_rule_node(
@@ -46,15 +76,7 @@ def test_verified_in_band_discount_does_not_trigger_approval():
     result = approval_rule_node(
         {
             "reply_text": "I can offer a 10% discount for a 20-unit bundle.",
-            "completed_tasks": [
-                {
-                    "task_id": "1",
-                    "assignee": "retriever",
-                    "status": "completed",
-                    "result": '{"status":"success","confidence":"high","result":"{"max_discount_pct": 10.0, "recommended_discount_pct": 10.0, "approval_required": false}","facts":[],"unknowns":[],"constraints":[]}',
-                    "description": "Evaluate discount request",
-                }
-            ],
+            "completed_tasks": [_make_discount_task(max_discount_pct=10.0)],
             "unverified_claims": [],
         }
     )
@@ -65,15 +87,7 @@ def test_out_of_band_discount_triggers_approval():
     result = approval_rule_node(
         {
             "reply_text": "I can offer a 20% discount for this order.",
-            "completed_tasks": [
-                {
-                    "task_id": "1",
-                    "assignee": "retriever",
-                    "status": "completed",
-                    "result": '{"status":"success","confidence":"high","result":"{"max_discount_pct": 10.0, "recommended_discount_pct": 10.0, "approval_required": false}","facts":[],"unknowns":[],"constraints":[]}',
-                    "description": "Evaluate discount request",
-                }
-            ],
+            "completed_tasks": [_make_discount_task(max_discount_pct=10.0)],
             "unverified_claims": [],
         }
     )

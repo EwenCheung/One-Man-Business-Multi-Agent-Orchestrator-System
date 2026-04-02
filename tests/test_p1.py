@@ -9,12 +9,15 @@ import sys
 import os
 sys.path.append(os.getcwd())
 
+import pytest
 from backend.graph.pipeline_graph import pipeline
 from backend.db.engine import SessionLocal
 from backend.db.models import Customer
 from backend.utils.langfuse import get_langfuse_handler
 import json
 
+
+@pytest.mark.integration
 def test_pipeline():
     print("\n" + "="*50)
     print("🚀 Running Pipeline Integration Test")

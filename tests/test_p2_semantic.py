@@ -11,11 +11,14 @@ import os
 import json
 sys.path.append(os.getcwd())
 
+import pytest
 from backend.db.engine import SessionLocal
 from backend.db.models import Customer
 from backend.graph.state import SubTask
 from backend.agents.retrieval_agent import retrieval_agent
 
+
+@pytest.mark.integration
 def test_semantic_search():
     print("\n" + "="*50)
     print("🚀 Running Retrieval Agent Semantic Search Test")

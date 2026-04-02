@@ -15,7 +15,6 @@ Two-stage retrieval pipeline for the policy agent:
     topically close but contextually less useful chunks.
 """
 
-from pydantic import SecretStr
 from langchain_openai import OpenAIEmbeddings
 from sentence_transformers import CrossEncoder
 from sqlalchemy import case, or_
@@ -119,7 +118,7 @@ def search_policy_chunks(
     k = top_k or settings.POLICY_TOP_K
 
     embedder = OpenAIEmbeddings(
-        model=settings.EMBEDDING_MODEL, api_key=SecretStr(settings.OPENAI_API_KEY)
+        model=settings.EMBEDDING_MODEL, api_key=settings.OPENAI_API_KEY
     )
     query_vector = embedder.embed_query(query)
 

@@ -1,7 +1,10 @@
+import pytest
+
 from backend.db.engine import SessionLocal
 from backend.tools.retrieval_tools import evaluate_discount_request
 
 
+@pytest.mark.integration
 def test_evaluate_discount_request_returns_internal_and_public_guidance():
     session = SessionLocal()
     try:
@@ -14,6 +17,7 @@ def test_evaluate_discount_request_returns_internal_and_public_guidance():
         session.close()
 
 
+@pytest.mark.integration
 def test_large_discount_or_large_quantity_requires_approval():
     session = SessionLocal()
     try:

@@ -10,6 +10,7 @@ CIRCUIT BREAKERS (Claude Code v2.1.88 patterns):
 """
 
 import logging
+import threading
 from typing import Any, Callable
 from backend.config import settings
 from backend.graph.state import PipelineState, SubTask
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _TASK_BUDGET_TOKEN_LIMIT = 500000
 _permission_denials: list[dict[str, Any]] = []
+_permission_denials_lock = threading.Lock()
 
 
 def check_replan_limit(
@@ -72,7 +74,11 @@ def track_permission_denial(
     tool_name: str, sender_role: str, reason: str, context: dict[str, Any] | None = None
 ) -> None:
     """
-    Record permission denial for audit purposes. Thread-safe append to module-level list.
+    Record permission denial for audit purposes.
+
+    Uses a threading.Lock for safe concurrent access in multi-threaded deployments.
+    The list persists for the lifetime of the process; call reset_permission_denials()
+    (e.g. at the start of each pipeline run) to clear records from previous requests.
 
     Args:
         tool_name: Name of the tool that was denied access
@@ -86,7 +92,8 @@ def track_permission_denial(
         "reason": reason,
         "context": context or {},
     }
-    _permission_denials.append(denial_record)
+    with _permission_denials_lock:
+        _permission_denials.append(denial_record)
     logger.warning(
         "Permission denial recorded: tool=%s role=%s reason=%s", tool_name, sender_role, reason
     )
@@ -94,13 +101,15 @@ def track_permission_denial(
 
 def get_permission_denials() -> list[dict[str, Any]]:
     """Retrieve all permission denial records for audit review."""
-    return _permission_denials.copy()
+    with _permission_denials_lock:
+        return _permission_denials.copy()
 
 
 def reset_permission_denials() -> None:
     """Clear permission denial records. Call at start of new orchestration session."""
     global _permission_denials
-    _permission_denials = []
+    with _permission_denials_lock:
+        _permission_denials = []
 
 
 def wrap_tool_with_permission_check(

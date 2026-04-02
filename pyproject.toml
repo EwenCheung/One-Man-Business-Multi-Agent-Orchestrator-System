@@ -70,6 +70,9 @@ testpaths = ["tests"]
 filterwarnings = [
     'ignore:.*torch\.jit\.script.*deprecated.*:DeprecationWarning',
 ]
+markers = [
+    "integration: marks tests as integration tests requiring a live database and/or external APIs (skip with '-m \"not integration\"')",
+]
 
 [tool.vulture]
 paths = ["backend"]

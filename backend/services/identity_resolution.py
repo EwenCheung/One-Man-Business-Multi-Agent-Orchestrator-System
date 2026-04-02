@@ -153,6 +153,7 @@ def resolve_or_create_sender(
                 entity_role=by_uuid["entity_role"],
                 entity_id=by_uuid["entity_id"],
             )
+            session.commit()
             return {
                 "external_sender_id": external_sender_id,
                 "sender_id": by_uuid["entity_id"],

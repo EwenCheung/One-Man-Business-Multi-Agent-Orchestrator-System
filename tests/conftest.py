@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from backend.db.engine import SessionLocal
 
@@ -31,3 +33,15 @@ def mock_state():
         "owner_id": "4c116430-f683-4a8a-91f7-546fa8bc5d76",
         "internal_monologue": [],
     }
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip integration tests unless INTEGRATION_TESTS=1 is set in the environment."""
+    if os.environ.get("INTEGRATION_TESTS"):
+        return
+    skip_marker = pytest.mark.skip(
+        reason="Integration test skipped by default. Set INTEGRATION_TESTS=1 to run."
+    )
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip_marker)

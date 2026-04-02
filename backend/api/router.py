@@ -206,15 +206,26 @@ async def get_reply_review_records(limit: int = 50):
 @api_router.get("/messages/{thread_id}")
 async def get_thread_history(thread_id: str):
     """Retrieve message history for a thread."""
+    from sqlalchemy import or_
     from backend.db.engine import SessionLocal
     from backend.db.models import Message
 
     session = SessionLocal()
     try:
-        # thread_id might literally be the sender_id right now
+        # thread_id is commonly a phone number / external sender id.
+        # Always filter by sender_id; only also filter by id when thread_id is a valid UUID to
+        # avoid a Postgres "invalid input syntax for type uuid" error.
+        filters = [Message.sender_id == thread_id]
+        try:
+            message_uuid = uuid.UUID(thread_id)
+        except (ValueError, TypeError):
+            message_uuid = None
+        if message_uuid is not None:
+            filters.append(Message.id == message_uuid)
+        predicate = or_(*filters) if len(filters) > 1 else filters[0]
         msgs = (
             session.query(Message)
-            .filter((Message.id == thread_id) | (Message.sender_id == thread_id))  # simple fallback
+            .filter(predicate)
             .order_by(Message.created_at.asc())
             .all()
         )
