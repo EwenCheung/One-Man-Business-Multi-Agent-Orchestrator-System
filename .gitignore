@@ -43,3 +43,11 @@ uv.lock
 .vscode/ # VS Code project files
 .env # Environment variables file
 .DS_Store # macOS files
+
+# Next.js build output
+.next/
+
+# playwright test output
+.playwright/
+.playwright-test/
+.playwright-mcp/

@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
 export default function SignupPage() {
-  const supabase = createClient();
   const router = useRouter();
 
   const [email, setEmail] = useState("");
@@ -18,6 +17,8 @@ export default function SignupPage() {
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setErrorMessage("");
+
+    const supabase = createClient();
 
     const { data, error } = await supabase.auth.signUp({
       email,

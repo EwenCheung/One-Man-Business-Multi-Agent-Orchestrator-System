@@ -280,6 +280,7 @@ async def get_pending_approvals():
                     "proposal_type": a.proposal_type,
                     "risk_level": a.risk_level,
                     "proposal_id": str(a.proposal_id) if a.proposal_id else None,
+                    "held_reply_id": str(a.held_reply_id) if a.held_reply_id else None,
                     "created_at": str(a.created_at),
                 }
                 for a in approvals

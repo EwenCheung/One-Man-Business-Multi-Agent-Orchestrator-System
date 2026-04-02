@@ -391,6 +391,9 @@ class PendingApproval(Base):
     proposal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("memory_update_proposals.id"), nullable=True
     )
+    held_reply_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("held_replies.id"), nullable=True
+    )
 
 
 class ReplyReviewRecord(Base):

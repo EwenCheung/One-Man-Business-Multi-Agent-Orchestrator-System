@@ -176,9 +176,11 @@ CREATE TABLE public.pending_approvals (
   status text DEFAULT 'pending'::text,
   created_at timestamp with time zone DEFAULT now(),
   proposal_id uuid,
+  held_reply_id uuid,
   CONSTRAINT pending_approvals_pkey PRIMARY KEY (id),
   CONSTRAINT pending_approvals_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id),
-  CONSTRAINT pending_approvals_proposal_id_fkey FOREIGN KEY (proposal_id) REFERENCES public.memory_update_proposals(id)
+  CONSTRAINT pending_approvals_proposal_id_fkey FOREIGN KEY (proposal_id) REFERENCES public.memory_update_proposals(id),
+  CONSTRAINT pending_approvals_held_reply_id_fkey FOREIGN KEY (held_reply_id) REFERENCES public.held_replies(id)
 );
 CREATE TABLE public.products (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

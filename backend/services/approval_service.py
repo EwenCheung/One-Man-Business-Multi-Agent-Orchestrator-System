@@ -216,7 +216,7 @@ def hold_reply(
             text("""
                 INSERT INTO public.pending_approvals (
                     id, owner_id, title, sender, preview,
-                    proposal_type, risk_level, status
+                    proposal_type, risk_level, status, held_reply_id
                 )
                 VALUES (
                     :id,
@@ -226,7 +226,8 @@ def hold_reply(
                     :preview,
                     'reply-approval',
                     :risk_level,
-                    'pending'
+                    'pending',
+                    :held_reply_id
                 )
             """),
             {
@@ -236,6 +237,7 @@ def hold_reply(
                 "sender": sender_name or "Unknown",
                 "preview": reply_text[:200],
                 "risk_level": risk_level,
+                "held_reply_id": new_id,
             },
         )
 
@@ -335,6 +337,15 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
             {"held_reply_id": held_reply_id, "message_id": message_id},
         )
 
+        session.execute(
+            text("""
+                UPDATE public.pending_approvals
+                SET status = 'approved'
+                WHERE held_reply_id = :held_reply_id
+            """),
+            {"held_reply_id": held_reply_id},
+        )
+
         review_record = (
             session.execute(
                 text("""
@@ -416,6 +427,15 @@ def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
                 WHERE held_reply_id = :held_reply_id
             """),
             {"held_reply_id": held_reply_id, "reason": reason},
+        )
+
+        session.execute(
+            text("""
+                UPDATE public.pending_approvals
+                SET status = 'rejected'
+                WHERE held_reply_id = :held_reply_id
+            """),
+            {"held_reply_id": held_reply_id},
         )
 
         session.commit()

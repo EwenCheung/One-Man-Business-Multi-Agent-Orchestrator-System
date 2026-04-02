@@ -126,6 +126,52 @@ values
   'pending'
 );
 
+insert into public.held_replies (
+  id,
+  owner_id,
+  thread_id,
+  sender_id,
+  sender_name,
+  sender_role,
+  reply_text,
+  risk_level,
+  risk_flags,
+  status
+)
+values (
+  '11111111-1111-1111-1111-111111111111',
+  'PASTE_YOUR_OWNER_ID_HERE',
+  'cust-2-thread',
+  'cust-2',
+  'Beta Retail',
+  'customer',
+  'We can offer a replacement after owner review because your delivery delay exceeds our normal policy window.',
+  'medium',
+  '[]'::jsonb,
+  'pending'
+);
+
+insert into public.pending_approvals (
+  owner_id,
+  title,
+  sender,
+  preview,
+  proposal_type,
+  risk_level,
+  status,
+  held_reply_id
+)
+values (
+  'PASTE_YOUR_OWNER_ID_HERE',
+  'Reply requires approval (medium risk)',
+  'Beta Retail',
+  'We can offer a replacement after owner review because your delivery delay exceeds our normal policy window.',
+  'reply-approval',
+  'medium',
+  'pending',
+  '11111111-1111-1111-1111-111111111111'
+);
+
 insert into public.memory_update_proposals (
   owner_id,
   sender_id,
