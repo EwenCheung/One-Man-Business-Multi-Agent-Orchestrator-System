@@ -289,7 +289,7 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
                 UPDATE public.held_replies
                 SET status = 'approved', reviewed_at = now()
                 WHERE id = :id
-                RETURNING reply_text, owner_id, sender_id, sender_name, sender_role
+                RETURNING reply_text, owner_id, sender_id, sender_name, sender_role, thread_id
             """),
                 {"id": held_reply_id},
             )
@@ -335,7 +335,39 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
             {"held_reply_id": held_reply_id, "message_id": message_id},
         )
 
+        review_record = (
+            session.execute(
+                text("""
+                SELECT raw_message, trace_id
+                FROM public.reply_review_records
+                WHERE held_reply_id = :held_reply_id
+                ORDER BY created_at DESC
+                LIMIT 1
+            """),
+                {"held_reply_id": held_reply_id},
+            )
+            .mappings()
+            .first()
+        )
+
         session.commit()
+
+        from backend.agents.memory_agent import memory_update_node
+
+        memory_update_node(
+            {
+                "owner_id": str(result["owner_id"]),
+                "external_sender_id": result["sender_id"],
+                "sender_name": result["sender_name"],
+                "sender_role": result["sender_role"],
+                "thread_id": result.get("thread_id"),
+                "trace_id": review_record["trace_id"] if review_record else None,
+                "raw_message": review_record["raw_message"] if review_record else "",
+                "reply_text": result["reply_text"],
+                "completed_tasks": [],
+            }
+        )
+
         return {
             "status": "approved",
             "reply_text": result["reply_text"],
