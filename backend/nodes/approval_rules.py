@@ -101,8 +101,11 @@ def _extract_discount_guidance(completed_tasks: list[TaskRecord]) -> dict[str, A
     for task in completed_tasks:
         if _task_text(task, "assignee") != "retriever":
             continue
-        resp = _task_agent_response(task)
-        raw_text = resp.result if resp else _task_text(task, "result")
+        # Prefer internal_data (stored separately to keep cost/margin out of AgentResponse.result)
+        raw_text = task.get("internal_data")
+        if raw_text is None:
+            resp = _task_agent_response(task)
+            raw_text = resp.result if resp else _task_text(task, "result")
         try:
             payload = json.loads(raw_text)
             if isinstance(payload, dict) and "max_discount_pct" in payload:

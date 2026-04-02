@@ -17,6 +17,8 @@ from backend.db import models
 from backend.db.engine import SessionLocal
 from backend.agents.retrieval_agent import retrieval_agent
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 def sample_ids():

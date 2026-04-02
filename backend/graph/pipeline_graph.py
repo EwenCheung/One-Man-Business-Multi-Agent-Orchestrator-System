@@ -144,14 +144,15 @@ def hold_for_approval_node(state: PipelineState) -> dict[str, str]:
         )
         return {
             "held_reply_id": held_reply_id,
-            "reply_text": f"[HELD FOR APPROVAL] {reply_text}",
+            "reply_text": "[HELD FOR APPROVAL]",
         }
     except Exception as e:
         logger.error("Failed to hold reply for approval: %s", e)
-        # Fallback: still mark as held but log the error
+        # Fallback: still mark as held but log the error; do NOT expose the
+        # original reply text to avoid accidental sending.
         return {
             "held_reply_id": "",
-            "reply_text": f"[HOLD FAILED — REVIEW MANUALLY] {reply_text}",
+            "reply_text": "[HOLD FAILED — REVIEW MANUALLY]",
         }
 
 

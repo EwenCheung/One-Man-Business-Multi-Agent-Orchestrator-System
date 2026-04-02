@@ -12,14 +12,24 @@ AUTO-COMPACT CIRCUIT BREAKER (Claude Code v2.1.88 pattern):
 
 import json
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Circuit breaker state (module-level for simplicity)
-_compression_failure_count = 0
+# Per-thread circuit breaker state so that one request's failures cannot trip
+# the breaker for a concurrent unrelated request.
+_local = threading.local()
 _MAX_COMPRESSION_FAILURES = 3
 _AUTO_COMPACT_THRESHOLD = 13000  # Claude pattern: 13K buffer before max context
+
+
+def _get_failure_count() -> int:
+    return getattr(_local, "compression_failure_count", 0)
+
+
+def _set_failure_count(count: int) -> None:
+    _local.compression_failure_count = count
 
 
 def _estimate_tokens(text: str) -> int:
@@ -41,18 +51,19 @@ def compress_context(completed_tasks: list[dict[str, Any]], max_tokens: int = 40
 
     Circuit breaker: Raises RuntimeError after 3 consecutive compression failures
     to prevent runaway token growth in orchestration loops.
-    """
-    global _compression_failure_count
 
+    Uses per-thread state so that concurrent requests do not interfere with
+    each other's failure counters.
+    """
     if not completed_tasks:
-        _compression_failure_count = 0
+        _set_failure_count(0)
         return "None yet."
 
     full_text = _format_tasks(completed_tasks)
     token_count = _estimate_tokens(full_text)
 
     if token_count <= max_tokens:
-        _compression_failure_count = 0
+        _set_failure_count(0)
         return full_text
 
     logger.warning("Context compression triggered: %d > %d tokens", token_count, max_tokens)
@@ -61,22 +72,23 @@ def compress_context(completed_tasks: list[dict[str, Any]], max_tokens: int = 40
     compressed_token_count = _estimate_tokens(compressed)
 
     if compressed_token_count > max_tokens:
-        _compression_failure_count += 1
+        failure_count = _get_failure_count() + 1
+        _set_failure_count(failure_count)
         logger.error(
             "Compression failed (%d/%d): %d tokens after truncation",
-            _compression_failure_count,
+            failure_count,
             _MAX_COMPRESSION_FAILURES,
             compressed_token_count,
         )
 
-        if _compression_failure_count >= _MAX_COMPRESSION_FAILURES:
+        if failure_count >= _MAX_COMPRESSION_FAILURES:
             raise RuntimeError(
                 f"Circuit breaker triggered: {_MAX_COMPRESSION_FAILURES} consecutive "
                 f"compression failures. Token count: {compressed_token_count} > {max_tokens}. "
                 "Halting to prevent runaway token growth."
             )
     else:
-        _compression_failure_count = 0
+        _set_failure_count(0)
 
     return compressed
 
@@ -142,6 +154,10 @@ def should_trigger_auto_compact(current_token_count: int, max_context_window: in
 
 
 def reset_circuit_breaker():
-    """Reset compression failure counter. Call at start of new orchestration session."""
-    global _compression_failure_count
-    _compression_failure_count = 0
+    """Reset the compression failure counter for the current thread.
+
+    Called at the start of each new orchestration session (replan_count == 0)
+    to prevent accumulated failures from a previous run triggering the breaker
+    for a new, unrelated request on the same thread.
+    """
+    _set_failure_count(0)

@@ -155,6 +155,7 @@ class TestRolePermissions:
 # ─── Column Filtering Tests ──────────────────────────────────────
 
 
+@pytest.mark.integration
 class TestColumnFiltering:
     def test_product_catalog_excludes_cost_price(self, session):
         rows = get_product_catalog(session)
@@ -195,6 +196,7 @@ class TestColumnFiltering:
 # ─── Row Scoping Tests ───────────────────────────────────────────
 
 
+@pytest.mark.integration
 class TestRowScoping:
     def test_customer_orders_scoped_to_customer(self, session, sample_ids):
         orders_c1 = get_customer_orders(session, sample_ids["c1"])
@@ -242,6 +244,7 @@ class TestRowScoping:
 # ─── Data Shape Tests ────────────────────────────────────────────
 
 
+@pytest.mark.integration
 class TestDataShapes:
     def test_product_catalog_shape(self, session):
         rows = get_product_catalog(session)
@@ -317,6 +320,7 @@ class TestDataShapes:
 # ─── Semantic Search Tests ───────────────────────────────────────
 
 
+@pytest.mark.integration
 class TestSemanticSearch:
     """
     Semantic search tests mock _embed_query to avoid OpenAI API calls.

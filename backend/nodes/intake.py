@@ -46,7 +46,10 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
 
         recent_msgs = (
             session.query(Message)
-            .filter(Message.sender_id == external_sender_id)
+            .filter(
+                Message.owner_id == owner_id_to_use,
+                Message.sender_id == external_sender_id,
+            )
             .order_by(Message.created_at.desc())
             .limit(4)
             .all()

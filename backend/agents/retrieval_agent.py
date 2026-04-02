@@ -476,6 +476,7 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
             results = []
             public_summary = None
             internal_only = False
+            internal_data = None
             for tool_call in response.tool_calls:
                 tool_fn = tool_map.get(tool_call["name"])
                 if tool_fn:
@@ -486,26 +487,45 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
                             payload = json.loads(str(result))
                             public_summary = payload.get("customer_safe_summary")
                             internal_only = True
+                            # Use json.dumps for consistent JSON serialization (str() produces
+                            # Python repr for dicts, not valid JSON).
+                            internal_data = json.dumps(payload)
                         except Exception:
                             pass
                 else:
                     results.append(f"Tool '{tool_call['name']}' not found in allowed tools.")
 
             raw_result = "\n".join(str(r) for r in results)
-            agent_response = AgentResponse(
-                status="success",
-                confidence="high" if raw_result else "low",
-                result=raw_result or "No data found.",
-                facts=[raw_result] if raw_result else [],
-                unknowns=[] if raw_result else ["Requested data was empty or not found."],
-            )
-            completed_task["status"] = "completed"
-            completed_task["result"] = agent_response.model_dump_json()
             if internal_only:
-                completed_task["internal_only"] = True
-                completed_task["public_summary"] = (
-                    public_summary or "Internal negotiation guidance completed."
+                # Keep cost/margin data out of AgentResponse.result so it is not included
+                # in context compression or exposed in later LLM prompts / traces.
+                # Langfuse still captures the full tool call via LLM invocation tracing.
+                result_text = public_summary or "Internal negotiation guidance completed."
+                agent_response = AgentResponse(
+                    status="success",
+                    confidence="high",
+                    result=result_text,
+                    facts=[result_text],
+                    unknowns=[],
                 )
+                completed_task["status"] = "completed"
+                completed_task["result"] = agent_response.model_dump_json()
+                completed_task["internal_only"] = True
+                completed_task["public_summary"] = result_text
+                # internal_data is stored separately so approval_rules can check discount guidance
+                # without reading it from the compressed/logged result field.
+                # None means json.loads failed; approval_rules will fall back to result field.
+                completed_task["internal_data"] = internal_data
+            else:
+                agent_response = AgentResponse(
+                    status="success",
+                    confidence="high" if raw_result else "low",
+                    result=raw_result or "No data found.",
+                    facts=[raw_result] if raw_result else [],
+                    unknowns=[] if raw_result else ["Requested data was empty or not found."],
+                )
+                completed_task["status"] = "completed"
+                completed_task["result"] = agent_response.model_dump_json()
         else:
             # LLM responded without tool calls — use its text response
             agent_response = AgentResponse(

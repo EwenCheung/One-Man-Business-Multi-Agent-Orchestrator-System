@@ -115,6 +115,15 @@ async def receive_message(incoming: IncomingMessage):
 
     requires_approval = result.get("requires_approval", False)
     reply_text = result.get("reply_text", "No reply generated.")
+    held_reply_id = result.get("held_reply_id", "")
+
+    # When the reply is held for owner approval, do not expose the unapproved draft
+    # to the API caller. The held_reply_id lets the dashboard locate the draft.
+    api_reply_text = (
+        "Your message is being reviewed. We will get back to you shortly."
+        if requires_approval
+        else reply_text
+    )
 
     # Only save to thread history if the message is actually delivered to the user
     if not requires_approval and reply_text and reply_text != "No reply generated.":
@@ -154,13 +163,14 @@ async def receive_message(incoming: IncomingMessage):
 
     # Extract final output
     return PipelineResult(
-        reply_text=reply_text,
+        reply_text=api_reply_text,
         risk_level=result.get("risk_level", "low"),
         requires_approval=requires_approval,
         status="completed",
         trace={
             "trace_id": result.get("trace_id", initial_state["trace_id"]),
             "orchestrator_warnings": result.get("orchestrator_warnings", []),
+            "held_reply_id": held_reply_id if requires_approval else None,
         },
     )
 
