@@ -70,22 +70,32 @@ def _find_existing_entity_by_profile_fields(
     normalized_external_id: str,
     external_type: str,
 ) -> dict[str, Any] | None:
-    for role, model in _role_model_pairs():
-        rows = session.query(model).all()
-        for row in rows:
-            candidate = None
-            if external_type == "phone":
-                candidate = _canonical_phone(getattr(row, "phone", None) or "")
-            elif external_type == "email":
-                candidate = _canonical_email(getattr(row, "email", None) or "")
+    owner_uuid = uuid.UUID(settings.OWNER_ID)
+    col_name: str | None = None
+    if external_type == "phone":
+        col_name = "phone"
+    elif external_type == "email":
+        col_name = "email"
 
-            if candidate and candidate == normalized_external_id:
-                return {
-                    "entity_role": role,
-                    "entity_id": str(row.id),
-                    "owner_id": str(row.owner_id),
-                    "record": row,
-                }
+    if col_name is None:
+        return None
+
+    for role, model in _role_model_pairs():
+        if not hasattr(model, col_name):
+            continue
+        col = getattr(model, col_name)
+        row = (
+            session.query(model)
+            .filter(model.owner_id == owner_uuid, col == normalized_external_id)
+            .first()
+        )
+        if row:
+            return {
+                "entity_role": role,
+                "entity_id": str(row.id),
+                "owner_id": str(row.owner_id),
+                "record": row,
+            }
     return None
 
 
