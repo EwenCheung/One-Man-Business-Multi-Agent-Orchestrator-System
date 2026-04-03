@@ -27,6 +27,10 @@ dependencies = [
     "docling>=2.82.0",
     "sentence-transformers>=3.0.0",
     "langfuse>=3.0.0",
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+    "pandas>=3.0.1",
+    "scikit-learn>=1.8.0",
 ]
 
 [project.optional-dependencies]
