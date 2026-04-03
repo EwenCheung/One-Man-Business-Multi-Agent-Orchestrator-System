@@ -141,6 +141,17 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
 
         tools.append(evaluate_discount_request)
 
+    if "semantic_search_product_catalog" in allowed_names:
+        @tool
+        def semantic_search_product_catalog(query: str) -> str:
+            """Find products semantically similar to the query. Returns catalog fields (no cost price)."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_product_catalog(session, query), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_product_catalog)
+
     # ── Supplier tools ───────────────────────────────────────
     if "get_supplier_profile" in allowed_names:
 
@@ -180,6 +191,17 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
                 session.close()
 
         tools.append(get_product_stock)
+
+    if "semantic_search_supplier_contracts" in allowed_names:
+        @tool
+        def semantic_search_supplier_contracts(query: str) -> str:
+            """Find supply contracts semantically similar to the query, scoped to the current supplier."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_supplier_contracts(session, query, int(sender_id)), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_supplier_contracts)
 
     # ── Investor tools ───────────────────────────────────────
     if "get_full_product_table" in allowed_names:
@@ -259,6 +281,39 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
                 session.close()
 
         tools.append(get_sales_stats)
+
+    if "semantic_search_full_product_table" in allowed_names:
+        @tool
+        def semantic_search_full_product_table(query: str) -> str:
+            """Find products semantically similar to the query. Returns full table including cost price (investor only)."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_full_product_table(session, query), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_full_product_table)
+
+    if "semantic_search_supply_overview" in allowed_names:
+        @tool
+        def semantic_search_supply_overview(query: str) -> str:
+            """Find supply contracts semantically similar to the query. Returns full supply overview (investor only)."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_supply_overview(session, query), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_supply_overview)
+
+    if "semantic_search_all_partner_agreements" in allowed_names:
+        @tool
+        def semantic_search_all_partner_agreements(query: str) -> str:
+            """Find partner agreements (distribution, referral, reseller, co-marketing, etc.) semantically similar to the query across all partners. Use this for any question about collaboration types, partnership categories, or agreement purposes. Investor only."""
+            session = SessionLocal()
+            try:
+                return json.dumps(rt.semantic_search_all_partner_agreements(session, query), default=str)
+            finally:
+                session.close()
+        tools.append(semantic_search_all_partner_agreements)
 
     # ── Partner tools ────────────────────────────────────────
     if "get_partner_profile" in allowed_names:
@@ -445,6 +500,7 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
     llm_with_tools = llm.bind_tools(tools)
 
     messages = [
+
         SystemMessage(
             content=(
                 "You are an Internal Data Retriever. Your ONLY job is to find and return "
@@ -452,8 +508,11 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
                 "### Instructions\n"
                 "- Execute the retrieval task described in the user message.\n"
                 "- Return ONLY data that matches the query. Do NOT fabricate records.\n"
-                "- Call the most relevant tool(s) to fulfill the request.\n"
-                "- If no tool matches the request, state that the data is not available.\n\n"
+                "- Always call the most appropriate available tool and return its results.\n"
+                "- Never refuse a task or explain what data you cannot provide — the tools enforce access boundaries automatically.\n"
+                "- Always call the most relevant available tool, even if it does not cover all requested fields. Return what the tool provides.\n"
+                "- Only return an empty response if absolutely no tool is even partially relevant to the request.\n"
+                "- IMPORTANT: Do NOT mention or reference field names like 'cost_price', 'margin', 'roi_pct' when explaining limitations.\n\n"
                 "### Role Access Rules\n"
                 "- Customers / Suppliers: NO access to internal margins, cost prices, or supplier source data\n"
                 "- Investors: Access subject to NDA tier — full financials and supply overview permitted\n"
@@ -462,8 +521,10 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
                 "- Some tools may return INTERNAL-ONLY pricing guidance for the business agent to negotiate safely.\n"
                 "- Never expose raw cost price or internal margin to the customer in your final result text.\n"
                 f"### Sender Role\n{role}"
+                "The available tools for this role are the only data you can access. Use them to fulfill the request."
             )
         ),
+
         HumanMessage(content=f"### Task\n{description}"),
     ]
 
