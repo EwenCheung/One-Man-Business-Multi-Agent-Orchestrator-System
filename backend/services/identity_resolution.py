@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from backend.config import settings
 from backend.db.models import Customer, ExternalIdentity, Investor, Partner, Supplier, Profile
@@ -166,12 +167,22 @@ def _is_owner_identity(
         except (ValueError, TypeError):
             pass
 
-    # Case 2: Email matches owner's profile email
+    # Case 2: Email matches owner's profile email or auth.users email
     if external_type == "email":
         owner_profile = session.query(Profile).filter_by(id=owner_uuid).first()
         if owner_profile and owner_profile.notifications_email:
             owner_email = _canonical_email(owner_profile.notifications_email)
             if normalized_external_id == owner_email:
+                return True
+
+        # Fallback: check auth.users if profile email not set
+        result = session.execute(
+            text("SELECT email FROM auth.users WHERE id = :owner_id"),
+            {"owner_id": str(owner_uuid)},
+        ).first()
+        if result and result[0]:
+            auth_email = _canonical_email(result[0])
+            if normalized_external_id == auth_email:
                 return True
 
     return False
