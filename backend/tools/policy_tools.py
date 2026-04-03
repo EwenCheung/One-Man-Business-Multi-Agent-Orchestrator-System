@@ -17,6 +17,7 @@ Two-stage retrieval pipeline for the policy agent:
 
 from langchain_openai import OpenAIEmbeddings
 from sentence_transformers import CrossEncoder
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from backend.config import settings
@@ -25,23 +26,79 @@ from backend.db.models import PolicyChunk
 
 # ─── Stage 2 model — loaded once at import time ───────────────────────────────
 
+
 def _load_reranker() -> CrossEncoder:
     if settings.HF_TOKEN:
         from huggingface_hub import login
+
         login(token=settings.HF_TOKEN)
     return CrossEncoder(settings.RERANKER_MODEL)
+
 
 _reranker = _load_reranker()
 
 
+_CATEGORY_HINTS = {
+    "returns": ["return", "refund", "replacement", "defective", "warranty"],
+    "pricing": ["price", "pricing", "discount", "discounts", "quote", "cost", "margin"],
+    "data_privacy": ["privacy", "personal data", "data", "delete", "retention", "confidential"],
+    "supplier": ["supplier", "invoice", "payment terms", "lead time", "procurement", "supply"],
+    "partner": ["partner", "referral", "commission", "affiliate", "revenue share"],
+    "owner_benefit": [
+        "owner approval",
+        "approval",
+        "concession",
+        "waiver",
+        "below cost",
+        "guarantee",
+    ],
+}
+
+
+def _score_value(value: object) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
+def infer_policy_categories(query: str, sender_role: str | None = None) -> list[str]:
+    query_text = (query or "").lower()
+    matches = {
+        category
+        for category, hints in _CATEGORY_HINTS.items()
+        if any(hint in query_text for hint in hints)
+    }
+
+    role_map = {
+        "supplier": "supplier",
+        "partner": "partner",
+        "investor": "data_privacy",
+    }
+    role_category = role_map.get((sender_role or "").lower())
+    if role_category:
+        matches.add(role_category)
+
+    ordered = [
+        "owner_benefit",
+        "pricing",
+        "returns",
+        "supplier",
+        "partner",
+        "data_privacy",
+    ]
+    return [category for category in ordered if category in matches]
+
+
 # ─── Stage 1: Semantic search ─────────────────────────────────────────────────
+
 
 def search_policy_chunks(
     session: Session,
     query: str,
     top_k: int | None = None,
     category: str | None = None,
-) -> list[dict]:
+    categories: list[str] | None = None,
+) -> list[dict[str, object]]:
     """
     Embed the query and retrieve the top-K most similar PolicyChunk rows using
     pgvector cosine distance.
@@ -61,42 +118,125 @@ def search_policy_chunks(
     k = top_k or settings.POLICY_TOP_K
 
     embedder = OpenAIEmbeddings(
-        model=settings.EMBEDDING_MODEL,
-        api_key=settings.OPENAI_API_KEY,
+        model=settings.EMBEDDING_MODEL, api_key=settings.OPENAI_API_KEY
     )
     query_vector = embedder.embed_query(query)
 
     distance_expr = PolicyChunk.embedding.cosine_distance(query_vector)
-    q = (
-        session.query(PolicyChunk, distance_expr.label("distance"))
-        .order_by(distance_expr)
-        .limit(k)
-    )
+    q = session.query(PolicyChunk, distance_expr.label("distance"))
     if category:
         q = q.filter(PolicyChunk.category == category)
+    elif categories:
+        q = q.filter(PolicyChunk.category.in_(categories))
+    q = q.order_by(distance_expr).limit(k)
 
     results = []
     for chunk, distance in q.all():
-        results.append({
-            "chunk_id": chunk.id,
-            "chunk_text": chunk.chunk_text,
-            "source_file": chunk.source_file,
-            "page_number": chunk.page_number,
-            "subheading": chunk.subheading,
-            "category": chunk.category,
-            "hard_constraint": chunk.hard_constraint,
-            "similarity_score": round(1.0 - distance, 4),
-        })
+        results.append(
+            {
+                "chunk_id": chunk.id,
+                "chunk_text": chunk.chunk_text,
+                "source_file": chunk.source_file,
+                "page_number": chunk.page_number,
+                "subheading": chunk.subheading,
+                "category": chunk.category,
+                "hard_constraint": chunk.hard_constraint,
+                "similarity_score": round(1.0 - distance, 4),
+                "retrieval_mode": "semantic",
+            }
+        )
     return results
+
+
+def search_policy_chunks_lexical(
+    session: Session,
+    query: str,
+    top_k: int | None = None,
+    categories: list[str] | None = None,
+) -> list[dict[str, object]]:
+    k = top_k or settings.POLICY_TOP_K
+    terms = [part.strip() for part in query.split() if part.strip()]
+    if not terms:
+        return []
+
+    filters = []
+    score_terms = []
+    for term in terms:
+        pattern = f"%{term}%"
+        filters.append(
+            or_(
+                PolicyChunk.chunk_text.ilike(pattern),
+                PolicyChunk.subheading.ilike(pattern),
+                PolicyChunk.source_file.ilike(pattern),
+                PolicyChunk.category.ilike(pattern),
+            )
+        )
+        term_score = case(
+            (PolicyChunk.chunk_text.ilike(pattern), 3),
+            (PolicyChunk.subheading.ilike(pattern), 2),
+            (PolicyChunk.category.ilike(pattern), 2),
+            (PolicyChunk.source_file.ilike(pattern), 1),
+            else_=0,
+        )
+        score_terms.append(term_score)
+
+    score = score_terms[0]
+    for term_score in score_terms[1:]:
+        score = score + term_score
+
+    query_builder = session.query(PolicyChunk, score.label("lexical_score")).filter(or_(*filters))
+    if categories:
+        query_builder = query_builder.filter(PolicyChunk.category.in_(categories))
+
+    rows = query_builder.order_by(score.desc()).limit(k).all()
+    results = []
+    for chunk, lexical_score in rows:
+        results.append(
+            {
+                "chunk_id": chunk.id,
+                "chunk_text": chunk.chunk_text,
+                "source_file": chunk.source_file,
+                "page_number": chunk.page_number,
+                "subheading": chunk.subheading,
+                "category": chunk.category,
+                "hard_constraint": chunk.hard_constraint,
+                "similarity_score": float(lexical_score or 0),
+                "retrieval_mode": "lexical",
+            }
+        )
+    return results
+
+
+def merge_policy_candidates(*candidate_groups: list[dict[str, object]]) -> list[dict[str, object]]:
+    merged: dict[object, dict[str, object]] = {}
+    for group in candidate_groups:
+        for candidate in group:
+            key = candidate["chunk_id"]
+            existing = merged.get(key)
+            candidate_score = _score_value(candidate.get("similarity_score", 0))
+            existing_score = _score_value(existing.get("similarity_score", 0)) if existing else 0.0
+            if not existing or candidate_score > existing_score:
+                merged[key] = dict(candidate)
+            elif existing and candidate.get("retrieval_mode"):
+                candidate_mode = str(candidate.get("retrieval_mode", ""))
+                existing_mode = str(existing.get("retrieval_mode", ""))
+                if candidate_mode and candidate_mode not in existing_mode:
+                    existing["retrieval_mode"] = f"{existing_mode or 'semantic'}+{candidate_mode}"
+    return sorted(
+        merged.values(),
+        key=lambda item: _score_value(item.get("similarity_score", 0)),
+        reverse=True,
+    )
 
 
 # ─── Stage 2: Cross-encoder reranker ─────────────────────────────────────────
 
+
 def rerank_chunks(
     query: str,
-    chunks: list[dict],
+    chunks: list[dict[str, object]],
     top_n: int | None = None,
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """
     Rerank retrieved chunks using a local cross-encoder model.
 
@@ -120,7 +260,7 @@ def rerank_chunks(
     if len(chunks) <= n:
         return chunks
 
-    pairs = [(query, c["chunk_text"]) for c in chunks]
+    pairs = [(query, str(c["chunk_text"])) for c in chunks]
     scores = _reranker.predict(pairs)
 
     ranked = sorted(range(len(chunks)), key=lambda i: scores[i], reverse=True)

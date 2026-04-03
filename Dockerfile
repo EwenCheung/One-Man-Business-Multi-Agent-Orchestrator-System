@@ -23,4 +23,4 @@ COPY . .
 EXPOSE 8000
 
 # Start backend by initializing DB + seed data, then run ASGI server on 0.0.0.0 for Docker networking
-CMD ["sh", "-c", "uv run python backend/db/init_db.py && uv run python backend/db/seed.py --generate --load && uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uv run python backend/db/init_db.py && uv run python backend/db/generate_seed_data.py && uv run python backend/db/load_seed_data.py && uv run python backend/db/generate_policies.py && uv run python backend/db/ingest_policies.py && uv run python backend/db/ingest_business_data.py && uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000"]

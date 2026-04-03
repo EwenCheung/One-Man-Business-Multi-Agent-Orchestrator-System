@@ -25,12 +25,13 @@ from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.db.engine import SessionLocal
-from backend.db.models import PartnerAgreement, Product, SupplyContract
+from backend.db.models import PartnerAgreement, Product, SupplierProduct
 
 _BATCH_SIZE = 100  # rows per embedding API call
 
 
 # ─── Text composers ───────────────────────────────────────────────────────────
+
 
 def _product_text(row: Product) -> str | None:
     """Embed name + description together so the vector captures what the product is."""
@@ -39,7 +40,7 @@ def _product_text(row: Product) -> str | None:
     return f"{row.name}: {row.description}"
 
 
-def _contract_text(row: SupplyContract) -> str | None:
+def _contract_text(row: SupplierProduct) -> str | None:
     return row.notes or None
 
 
@@ -50,6 +51,7 @@ def _agreement_text(row: PartnerAgreement) -> str | None:
 
 
 # ─── Per-table embedding logic ────────────────────────────────────────────────
+
 
 def _embed_products(session: Session, embedder: OpenAIEmbeddings, force: bool) -> int:
     q = session.query(Product).filter(Product.description.isnot(None))
@@ -78,9 +80,9 @@ def _embed_products(session: Session, embedder: OpenAIEmbeddings, force: bool) -
 
 
 def _embed_supply_contracts(session: Session, embedder: OpenAIEmbeddings, force: bool) -> int:
-    q = session.query(SupplyContract).filter(SupplyContract.notes.isnot(None))
+    q = session.query(SupplierProduct).filter(SupplierProduct.notes.isnot(None))
     if not force:
-        q = q.filter(SupplyContract.notes_embedding.is_(None))
+        q = q.filter(SupplierProduct.notes_embedding.is_(None))
 
     rows = q.all()
     if not rows:
@@ -127,6 +129,7 @@ def _embed_partner_agreements(session: Session, embedder: OpenAIEmbeddings, forc
 
 # ─── Batched embedding helper ─────────────────────────────────────────────────
 
+
 def _batch_embed(embedder: OpenAIEmbeddings, texts: list[str]) -> list[list[float]]:
     """Embed texts in fixed-size batches to stay within API rate limits."""
     vectors: list[list[float]] = []
@@ -151,9 +154,7 @@ def embed(force: bool = False, table: str | None = None) -> None:
         api_key=settings.OPENAI_API_KEY,
     )
 
-    tables_to_run = (
-        {table: _TABLE_HANDLERS[table]} if table else _TABLE_HANDLERS
-    )
+    tables_to_run = {table: _TABLE_HANDLERS[table]} if table else _TABLE_HANDLERS
 
     session: Session = SessionLocal()
     try:
@@ -163,7 +164,9 @@ def embed(force: bool = False, table: str | None = None) -> None:
             if count:
                 print(f"  embedded {count} rows")
             else:
-                print(f"  nothing to embed (all rows already have embeddings — use --force to re-embed)")
+                print(
+                    f"  nothing to embed (all rows already have embeddings — use --force to re-embed)"
+                )
     finally:
         session.close()
 

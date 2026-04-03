@@ -8,16 +8,18 @@ Uses Annotated lists for fan-out / fan-in aggregation.
 import operator
 from typing import Any, TypedDict, Annotated
 
+
 class SubTask(TypedDict):
     """A specifically assigned task for a sub-agent."""
+
     task_id: str
-    description: str          # Instructions to the sub-agent
-    assignee: str             # "retriever" | "research" | "policy" | "memory"
-    status: str               # "pending" | "completed" | "failed"
-    result: str               # Detailed output from the sub-agent
-    priority: str             # "required" | "optional"
-    context_needed: list[str] # What specific global context keys the Orchestrator requested
-    injected_context: dict[str, Any] # The actual quarantine payload populated by the router
+    description: str  # Instructions to the sub-agent
+    assignee: str  # "retriever" | "research" | "policy" | "memory"
+    status: str  # "pending" | "completed" | "failed"
+    result: str  # Detailed output from the sub-agent
+    priority: str  # "required" | "optional"
+    context_needed: list[str]  # What specific global context keys the Orchestrator requested
+    injected_context: dict[str, Any]  # The actual quarantine payload populated by the router
 
 
 class PipelineState(TypedDict, total=False):
@@ -25,7 +27,11 @@ class PipelineState(TypedDict, total=False):
 
     # ── Input (set at the start) ──────────────────────────────
     raw_message: str
+    owner_id: str
     sender_id: str
+    external_sender_id: str
+    entity_id: str
+    trace_id: str
     sender_name: str
     thread_id: str
     source_type: str
@@ -35,13 +41,13 @@ class PipelineState(TypedDict, total=False):
     intent_label: str
     urgency_level: str
     short_term_memory: list[dict[str, Any]]  # Recent chat history
-    long_term_memory: str                    # Summary or MEMORY.md abstract
-    soul_context: str                        # Loaded from SOUL.md
-    rules_context: str                       # Loaded from RULE.md
+    long_term_memory: str  # Summary or MEMORY.md abstract
+    soul_context: str  # Loaded from SOUL.md
+    rules_context: str  # Loaded from RULE.md
     guardrails_passed: bool
 
     # ── Orchestrator Harness Control ──────────────────────────
-    replan_count: int                        # Tracks how many replan cycles have occurred
+    replan_count: int  # Tracks how many replan cycles have occurred
     failed_tasks: Annotated[list[SubTask], operator.add]  # Fan-in for failed tasks
     orchestrator_warnings: Annotated[list[str], operator.add]  # Guardrail breach logs
 
@@ -60,10 +66,17 @@ class PipelineState(TypedDict, total=False):
     unverified_claims: list[str]
     tone_flags: list[str]
 
+    # ── Approval-rule validation output ────────────────────────
+    approval_rule_flags: list[str]
+    approval_rule_requires_approval: bool
+
     # ── Risk output ───────────────────────────────────────────
-    risk_level: str           # "low" | "medium" | "high"
+    risk_level: str  # "low" | "medium" | "high"
     risk_flags: list[str]
     requires_approval: bool
+
+    # ── Risk Approval Flow ────────────────────────────────────
+    held_reply_id: str  # UUID of the held reply (if risk triggered hold)
 
     # ── Update output ─────────────────────────────────────────
     memory_updates: list[dict[str, Any]]

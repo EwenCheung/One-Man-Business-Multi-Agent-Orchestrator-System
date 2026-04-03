@@ -34,7 +34,10 @@ Services:
 
 Backend startup automatically runs:
 - `backend/db/init_db.py`
-- `backend/db/seed.py --generate --load`
+- `backend/db/generate_seed_data.py` (generates CSVs in `backend/data/seed/`)
+- `backend/db/load_seed_data.py` (loads CSVs into database)
+- `backend/db/generate_policies.py` (generates policy PDFs in `backend/data/policies/`)
+- `backend/db/ingest_business_data.py` (loads policies and embeds vectors)
 
 Seed loading is idempotent (existing populated tables are skipped).
 
@@ -44,7 +47,10 @@ Useful commands:
 docker compose logs -f backend frontend db
 
 # Re-run seed manually in container
-docker compose exec backend uv run python backend/db/seed.py --generate --load
+docker compose exec backend uv run python backend/db/generate_seed_data.py
+docker compose exec backend uv run python backend/db/load_seed_data.py
+docker compose exec backend uv run python backend/db/generate_policies.py
+docker compose exec backend uv run python backend/db/ingest_business_data.py
 
 # Stop
 docker compose down
@@ -56,7 +62,10 @@ Backend:
 ```bash
 uv sync
 uv run python backend/db/init_db.py
-uv run python backend/db/seed.py --generate --load
+uv run python backend/db/generate_seed_data.py
+uv run python backend/db/load_seed_data.py
+uv run python backend/db/generate_policies.py
+uv run python backend/db/ingest_business_data.py
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 

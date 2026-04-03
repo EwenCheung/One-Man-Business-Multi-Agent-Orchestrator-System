@@ -14,11 +14,14 @@ Usage:
 
 import argparse
 import re
+import uuid
 from pathlib import Path
+from typing import Any
 
 from collections import defaultdict
 
 from docling.document_converter import DocumentConverter
+from pydantic import SecretStr
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import MarkdownTextSplitter
 from sqlalchemy.orm import Session
@@ -31,6 +34,7 @@ from backend.db.models import PolicyChunk
 
 POLICIES_DIR = Path(__file__).parent.parent / "data" / "policies"
 _SIDECAR_PATH = POLICIES_DIR / "policies_metadata.json"
+OWNER_ID = uuid.UUID("4c116430-f683-4a8a-91f7-546fa8bc5d76")
 
 # Suffixes stripped right-to-left to derive a category from a filename.
 # e.g. partner_agreement_policy.pdf → partner_agreement → partner
@@ -45,7 +49,7 @@ def _derive_category(filename: str) -> str:
     return stem
 
 
-def _load_sidecar() -> dict[str, dict]:
+def _load_sidecar() -> dict[str, dict[str, Any]]:
     """
     Load optional per-file metadata overrides from policies_metadata.json.
 
@@ -62,11 +66,13 @@ def _load_sidecar() -> dict[str, dict]:
     if not _SIDECAR_PATH.exists():
         return {}
     import json
+
     with open(_SIDECAR_PATH) as f:
         return json.load(f)
 
 
 # ─── PDF → Markdown conversion ───────────────────────────────────────────────
+
 
 def _pdf_to_markdown_pages(pdf_path: Path) -> list[tuple[int, str]]:
     """
@@ -93,22 +99,19 @@ def _pdf_to_markdown_pages(pdf_path: Path) -> list[tuple[int, str]]:
         if text and text.strip():
             page_parts[page_no].append(text.strip())
 
-    return [
-        (page_no, "\n\n".join(parts))
-        for page_no, parts in sorted(page_parts.items())
-        if parts
-    ]
+    return [(page_no, "\n\n".join(parts)) for page_no, parts in sorted(page_parts.items()) if parts]
 
 
 # ─── Chunking ────────────────────────────────────────────────────────────────
 
+
 def _extract_heading(text: str) -> str | None:
     """Return the heading text if the chunk starts with a Markdown heading, else None."""
-    m = re.match(r'^#{1,6}\s+(.+)', text.strip())
+    m = re.match(r"^#{1,6}\s+(.+)", text.strip())
     return m.group(1).strip() if m else None
 
 
-def _chunk_pages(pages: list[tuple[int, str]]) -> list[dict]:
+def _chunk_pages(pages: list[tuple[int, str]]) -> list[dict[str, Any]]:
     """
     Split each page's Markdown into overlapping chunks using MarkdownTextSplitter.
 
@@ -131,23 +134,26 @@ def _chunk_pages(pages: list[tuple[int, str]]) -> list[dict]:
             heading = _extract_heading(split)
             if heading:
                 current_heading = heading
-            chunks.append({
-                "page_number": page_number,
-                "chunk_index": idx,
-                "chunk_text": split,
-                "subheading": current_heading,
-            })
+            chunks.append(
+                {
+                    "page_number": page_number,
+                    "chunk_index": idx,
+                    "chunk_text": split,
+                    "subheading": current_heading,
+                }
+            )
     return chunks
 
 
 # ─── Ingestion ───────────────────────────────────────────────────────────────
+
 
 def _ingest_file(
     session: Session,
     pdf_path: Path,
     embedder: OpenAIEmbeddings,
     force: bool,
-    sidecar: dict[str, dict],
+    sidecar: dict[str, dict[str, Any]],
 ) -> int:
     """
     Ingest one PDF into policy_chunks.
@@ -188,6 +194,7 @@ def _ingest_file(
 
     rows = [
         PolicyChunk(
+            owner_id=OWNER_ID,
             source_file=filename,
             page_number=c["page_number"],
             chunk_index=c["chunk_index"],
@@ -206,6 +213,7 @@ def _ingest_file(
 
 # ─── Main pipeline ───────────────────────────────────────────────────────────
 
+
 def ingest(force: bool = False) -> None:
     pdf_files = sorted(POLICIES_DIR.glob("*.pdf"))
     if not pdf_files:
@@ -218,11 +226,17 @@ def ingest(force: bool = False) -> None:
 
     embedder = OpenAIEmbeddings(
         model=settings.EMBEDDING_MODEL,
-        api_key=settings.OPENAI_API_KEY,
+        api_key=SecretStr(settings.OPENAI_API_KEY),
     )
 
     session: Session = SessionLocal()
     try:
+        if force:
+            expected_files = {pdf_path.name for pdf_path in pdf_files}
+            session.query(PolicyChunk).filter(~PolicyChunk.source_file.in_(expected_files)).delete(
+                synchronize_session=False
+            )
+            session.commit()
         for pdf_path in pdf_files:
             print(f"  ingesting {pdf_path.name} ...")
             count = _ingest_file(session, pdf_path, embedder, force, sidecar)

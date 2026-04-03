@@ -17,6 +17,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import Boolean, Date, Integer, Numeric
+from sqlalchemy.dialects.postgresql import UUID as UUIDType
+import uuid
 from sqlalchemy.orm import Session
 
 from backend.db import models
@@ -30,9 +32,9 @@ _MODEL_MAP = {
     "suppliers.csv": models.Supplier,
     "partners.csv": models.Partner,
     "orders.csv": models.Order,
-    "supply_contracts.csv": models.SupplyContract,
+    "supply_contracts.csv": models.SupplierProduct,
     "partner_agreements.csv": models.PartnerAgreement,
-    "partner_products.csv": models.PartnerProduct,
+    "partner_products.csv": models.PartnerProductRelation,
 }
 
 # Insertion order respects foreign key constraints
@@ -67,6 +69,8 @@ def _coerce_row(row: dict, model) -> dict:
             cleaned[k] = v.lower() in ("true", "1", "yes")
         elif isinstance(col_type, Date):
             cleaned[k] = date.fromisoformat(v)
+        elif isinstance(col_type, UUIDType):
+            cleaned[k] = uuid.UUID(v) if v else None
         else:
             cleaned[k] = v
     return cleaned

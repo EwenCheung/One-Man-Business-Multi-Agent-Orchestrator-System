@@ -12,8 +12,28 @@ the router populates `injected_context` before sub-agents receive the task.
 """
 
 import json
-
+import pytest
+from backend.db import models
+from backend.db.engine import SessionLocal
 from backend.agents.retrieval_agent import retrieval_agent
+
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def sample_ids():
+    session = SessionLocal()
+    try:
+        c = session.query(models.Customer).first()
+        s = session.query(models.Supplier).first()
+        p = session.query(models.Partner).first()
+        return {
+            "customer": str(c.id) if c else "00000000-0000-0000-0000-000000000001",
+            "supplier": str(s.id) if s else "00000000-0000-0000-0000-000000000001",
+            "partner": str(p.id) if p else "00000000-0000-0000-0000-000000000001",
+        }
+    finally:
+        session.close()
 
 
 def make_task(task_id: str, description: str, role: str, sender_id: str) -> dict:
@@ -37,9 +57,9 @@ def print_result(label: str, output: dict):
     """Pretty-print a test result."""
     task = output["completed_tasks"][0]
     ctx = task.get("injected_context", {})
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"TEST: {label}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Role:        {ctx.get('sender_role', '')}")
     print(f"  Sender ID:   {ctx.get('sender_id', '')}")
     print(f"  Description: {task['description']}")
@@ -62,24 +82,24 @@ def _assert_completed(result: dict) -> dict:
     return completed
 
 
-def test_customer_orders():
-    """Customer (id=1) asks about their recent orders."""
+def test_customer_orders(sample_ids):
+    """Customer asks about their recent orders."""
     task = make_task(
         task_id="test-01",
         description="Show me my recent orders and their status.",
         role="customer",
-        sender_id="1",
+        sender_id=sample_ids["customer"],
     )
     _assert_completed(retrieval_agent(task))
 
 
-def test_supplier_contracts():
-    """Supplier (id=1) asks about their active contracts."""
+def test_supplier_contracts(sample_ids):
+    """Supplier asks about their active contracts."""
     task = make_task(
         task_id="test-02",
         description="What are my current supply contracts and product details?",
         role="supplier",
-        sender_id="1",
+        sender_id=sample_ids["supplier"],
     )
     _assert_completed(retrieval_agent(task))
 
@@ -90,18 +110,18 @@ def test_investor_roi():
         task_id="test-03",
         description="Give me the ROI breakdown for all products.",
         role="investor",
-        sender_id="0",
+        sender_id="00000000-0000-0000-0000-000000000000",
     )
     _assert_completed(retrieval_agent(task))
 
 
-def test_partner_products():
-    """Partner (id=1) asks about their linked products."""
+def test_partner_products(sample_ids):
+    """Partner asks about their linked products."""
     task = make_task(
         task_id="test-04",
         description="Which products are linked to my partnership and what are the agreement details?",
         role="partner",
-        sender_id="1",
+        sender_id=sample_ids["partner"],
     )
     _assert_completed(retrieval_agent(task))
 
@@ -126,12 +146,57 @@ def _run(task_id, description, role, sender_id):
 
 
 if __name__ == "__main__":
+    session = SessionLocal()
+    try:
+        c = session.query(models.Customer).first()
+        s = session.query(models.Supplier).first()
+        p = session.query(models.Partner).first()
+        ids = {
+            "customer": str(c.id) if c else "00000000-0000-0000-0000-000000000001",
+            "supplier": str(s.id) if s else "00000000-0000-0000-0000-000000000001",
+            "partner": str(p.id) if p else "00000000-0000-0000-0000-000000000001",
+        }
+    finally:
+        session.close()
+
     tests = [
-        ("Customer — My Orders",      lambda: _run("test-01", "Show me my recent orders and their status.", "customer", "1")),
-        ("Supplier — My Contracts",   lambda: _run("test-02", "What are my current supply contracts and product details?", "supplier", "1")),
-        ("Investor — Product ROI",    lambda: _run("test-03", "Give me the ROI breakdown for all products.", "investor", "0")),
-        ("Partner — My Products",     lambda: _run("test-04", "Which products are linked to my partnership and what are the agreement details?", "partner", "1")),
-        ("Unknown Role — Access Denied", lambda: _run("test-05", "Show me everything in the database.", "anonymous", "0")),
+        (
+            "Customer — My Orders",
+            lambda: _run(
+                "test-01", "Show me my recent orders and their status.", "customer", ids["customer"]
+            ),
+        ),
+        (
+            "Supplier — My Contracts",
+            lambda: _run(
+                "test-02",
+                "What are my current supply contracts and product details?",
+                "supplier",
+                ids["supplier"],
+            ),
+        ),
+        (
+            "Investor — Product ROI",
+            lambda: _run(
+                "test-03",
+                "Give me the ROI breakdown for all products.",
+                "investor",
+                "00000000-0000-0000-0000-000000000000",
+            ),
+        ),
+        (
+            "Partner — My Products",
+            lambda: _run(
+                "test-04",
+                "Which products are linked to my partnership and what are the agreement details?",
+                "partner",
+                ids["partner"],
+            ),
+        ),
+        (
+            "Unknown Role — Access Denied",
+            lambda: _run("test-05", "Show me everything in the database.", "anonymous", "0"),
+        ),
     ]
 
     for label, run_fn in tests:
@@ -139,11 +204,11 @@ if __name__ == "__main__":
             result = run_fn()
             print_result(label, result)
         except Exception as e:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"TEST: {label}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print(f"  ERROR: {e}")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("ALL 5 TESTS COMPLETE")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
