@@ -1,4 +1,6 @@
 from sqlalchemy import text
+from sqlalchemy.engine import Engine
+from typing import cast
 
 from backend.db.engine import engine
 from backend.db.models import Base
@@ -6,19 +8,21 @@ from backend.db import models  # noqa: F401 — registers ORM models with Base.m
 
 
 def init():
+    db_engine = cast(Engine, engine)
+
     # Enable vector db
-    with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    with db_engine.connect() as conn:
+        _ = conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.commit()
 
     print("Creating tables...")
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(db_engine)
 
-    with engine.connect() as conn:
-        conn.execute(
+    with db_engine.connect() as conn:
+        _ = conn.execute(
             text("ALTER TABLE public.pending_approvals ADD COLUMN IF NOT EXISTS held_reply_id uuid")
         )
-        conn.execute(
+        _ = conn.execute(
             text(
                 """
                 DO $$

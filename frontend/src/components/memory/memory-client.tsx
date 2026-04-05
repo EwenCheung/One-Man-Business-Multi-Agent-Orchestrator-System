@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import ConfirmActionDialog from "@/components/confirm-action-dialog";
 import { useMemoryMutations, useMemoryOverview } from "@/hooks/use-memory";
+import { updateOwnerProfile } from "@/lib/api-client";
 import type { DailyDigestItem, DailyDigestInput, MemoryOverviewPayload, OwnerMemoryRule } from "@/lib/types";
 
 type ViewState =
+  | { kind: "profile_memory" }
   | { kind: "rule"; rule: OwnerMemoryRule }
   | { kind: "digest"; digest: DailyDigestItem }
   | null;
@@ -14,16 +16,30 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
   const { data, isLoading, isError } = useMemoryOverview(initialData);
   const { saveOwnerRule, saveDailyDigest, isSavingRule, isSavingDigest } = useMemoryMutations();
   const defaultView = useMemo<ViewState>(() => {
+    if (initialData.ownerProfile) return { kind: "profile_memory" };
     if (initialData.ownerRules[0]) return { kind: "rule", rule: initialData.ownerRules[0] };
     if (initialData.dailyDigest[0]) return { kind: "digest", digest: initialData.dailyDigest[0] };
     return null;
   }, [initialData]);
   const [selectedView, setSelectedView] = useState<ViewState>(defaultView);
   const [editorValue, setEditorValue] = useState(
-    defaultView?.kind === "rule" ? defaultView.rule.content : defaultView?.kind === "digest" ? defaultView.digest.summary ?? "" : ""
+    defaultView?.kind === "profile_memory" 
+      ? initialData.ownerProfile?.memory_context ?? "" 
+      : defaultView?.kind === "rule" 
+        ? defaultView.rule.content 
+        : defaultView?.kind === "digest" 
+          ? defaultView.digest.summary ?? "" 
+          : ""
   );
   const [confirmSave, setConfirmSave] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSavingProfileMemory, setIsSavingProfileMemory] = useState(false);
+
+  function selectProfileMemory() {
+    setSelectedView({ kind: "profile_memory" });
+    setEditorValue(data.ownerProfile?.memory_context ?? "");
+    setErrorMessage(null);
+  }
 
   function selectRule(rule: OwnerMemoryRule) {
     setSelectedView({ kind: "rule", rule });
@@ -42,7 +58,11 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
     setErrorMessage(null);
 
     try {
-      if (selectedView.kind === "rule") {
+      if (selectedView.kind === "profile_memory") {
+        setIsSavingProfileMemory(true);
+        await updateOwnerProfile({ memory_context: editorValue });
+        setIsSavingProfileMemory(false);
+      } else if (selectedView.kind === "rule") {
         await saveOwnerRule(selectedView.rule.id, editorValue);
       } else {
         const payload: DailyDigestInput = {
@@ -56,6 +76,7 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save memory item.");
       setConfirmSave(false);
+      setIsSavingProfileMemory(false);
     }
   }
 
@@ -88,7 +109,9 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
         </div>
         <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Selected view</p>
-          <p className="mt-3 text-4xl font-semibold text-zinc-900">{selectedView?.kind === "rule" ? "Long-term" : selectedView?.kind === "digest" ? "Daily" : "—"}</p>
+          <p className="mt-3 text-4xl font-semibold text-zinc-900">
+            {selectedView?.kind === "profile_memory" ? "Long-term" : selectedView?.kind === "rule" ? "Rule" : selectedView?.kind === "digest" ? "Daily" : "—"}
+          </p>
           <p className="mt-2 text-sm text-zinc-500">Switch between durable memory and daily summary below.</p>
         </div>
       </div>
@@ -99,11 +122,11 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
           <div className="mt-4 space-y-2">
             <button
               type="button"
-              onClick={() => data.ownerRules[0] && selectRule(data.ownerRules[0])}
-              className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedView?.kind === "rule" ? "border-sky-200 bg-sky-50" : "border-zinc-200 bg-zinc-50"}`}
+              onClick={() => selectProfileMemory()}
+              className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedView?.kind === "profile_memory" ? "border-sky-200 bg-sky-50" : "border-zinc-200 bg-zinc-50"}`}
             >
               <p className="font-medium text-zinc-900">Long-term memory</p>
-              <p className="mt-1 text-xs text-zinc-500">{data.ownerRules.length} rules available</p>
+              <p className="mt-1 text-xs text-zinc-500">Owner profile memory context</p>
             </button>
             {data.dailyDigest.map((digest) => (
               <button
@@ -121,9 +144,23 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
 
         <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Viewer</p>
-          <h2 className="mt-2 text-2xl font-semibold text-zinc-900">{selectedView?.kind === "rule" ? "Long-term memory" : "Daily memory summary"}</h2>
+          <h2 className="mt-2 text-2xl font-semibold text-zinc-900">
+            {selectedView?.kind === "profile_memory" ? "Long-term memory" : selectedView?.kind === "rule" ? "Owner Rule" : "Daily memory summary"}
+          </h2>
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
-            {selectedView?.kind === "rule" ? (
+            {selectedView?.kind === "profile_memory" ? (
+              <>
+                <div className="flex flex-wrap gap-2 text-xs font-medium text-zinc-500">
+                  <span className="rounded-full bg-white px-3 py-1">Owner Profile</span>
+                  <span className="rounded-full bg-white px-3 py-1">Memory Context</span>
+                </div>
+                <textarea
+                  value={editorValue}
+                  onChange={(event) => setEditorValue(event.target.value)}
+                  className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
+                />
+              </>
+            ) : selectedView?.kind === "rule" ? (
               <>
                 <div className="flex flex-wrap gap-2 text-xs font-medium text-zinc-500">
                   <span className="rounded-full bg-white px-3 py-1">{selectedView.rule.role}</span>
@@ -157,7 +194,7 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
               <button
                 type="button"
                 onClick={() => setConfirmSave(true)}
-                disabled={isSavingRule || isSavingDigest}
+                disabled={isSavingRule || isSavingDigest || isSavingProfileMemory}
                 className="rounded-xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
               >
                 Save changes
@@ -165,6 +202,7 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
               <button
                 type="button"
                 onClick={() => {
+                  if (selectedView.kind === "profile_memory") setEditorValue(data.ownerProfile?.memory_context ?? "");
                   if (selectedView.kind === "rule") setEditorValue(selectedView.rule.content);
                   if (selectedView.kind === "digest") setEditorValue(selectedView.digest.summary ?? "");
                 }}
@@ -198,7 +236,7 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
         title="Confirm memory update"
         description="Save these changes to the selected memory item now?"
         confirmLabel="Confirm save"
-        loading={isSavingRule || isSavingDigest}
+        loading={isSavingRule || isSavingDigest || isSavingProfileMemory}
         onCancelAction={() => setConfirmSave(false)}
         onConfirmAction={handleSave}
       />

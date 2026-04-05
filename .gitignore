@@ -31,6 +31,7 @@ yarn-error.log
 .venv
 venv
 .env
+.env.local
 build/
 dist/
 *.egg-info/
@@ -47,7 +48,7 @@ uv.lock
 # Next.js build output
 .next/
 
-# playwright test output
-.playwright/
-.playwright-test/
+# test output
 .playwright-mcp/
+.ruff_cache/
+.sisyphus/

@@ -6,6 +6,14 @@ import type {
   DailyDigestInput,
   DashboardPayload,
   MemoryOverviewPayload,
+  MessageSenderRole,
+  MessageThreadDetailResponse,
+  MessageThreadsResponse,
+  OwnerChatThreadsResponse,
+  OwnerProfile,
+  OwnerProfileInput,
+  OrderDetail,
+  OrderRow,
   ProductInput,
   ProductRow,
   StakeholderInput,
@@ -61,6 +69,43 @@ export async function fetchMemoryOverview(): Promise<MemoryOverviewPayload> {
   });
 
   return readJson<MemoryOverviewPayload>(response);
+}
+
+export async function fetchOwnerProfile(): Promise<OwnerProfile | null> {
+  const response = await fetch("/api/profile", {
+    credentials: "include",
+  });
+
+  return readJson<OwnerProfile | null>(response);
+}
+
+export async function updateOwnerProfile(payload: OwnerProfileInput): Promise<OwnerProfile> {
+  const response = await fetch("/api/profile", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  return readJson<OwnerProfile>(response);
+}
+
+export async function fetchOrders(): Promise<OrderRow[]> {
+  const response = await fetch("/api/orders", {
+    credentials: "include",
+  });
+
+  return readJson<OrderRow[]>(response);
+}
+
+export async function fetchOrder(orderId: string): Promise<OrderDetail> {
+  const response = await fetch(`/api/orders/${orderId}`, {
+    credentials: "include",
+  });
+
+  return readJson<OrderDetail>(response);
 }
 
 export async function submitApprovalAction(params: {
@@ -216,6 +261,43 @@ export async function updateDailyDigestItem(digestId: string, payload: DailyDige
     },
     credentials: "include",
     body: JSON.stringify(payload),
+  });
+
+  return readJson<{ ok: true }>(response);
+}
+
+export async function fetchMessageThreads(role?: MessageSenderRole): Promise<MessageThreadsResponse> {
+  const url = role 
+    ? `/api/messages/threads?sender_roles=${role}`
+    : "/api/messages/threads";
+
+  const response = await fetch(url, {
+    credentials: "include",
+  });
+
+  return readJson<MessageThreadsResponse>(response);
+}
+
+export async function fetchMessageThread(threadId: string): Promise<MessageThreadDetailResponse> {
+  const response = await fetch(`/api/messages/threads/${threadId}`, {
+    credentials: "include",
+  });
+
+  return readJson<MessageThreadDetailResponse>(response);
+}
+
+export async function fetchOwnerChatThreads(): Promise<OwnerChatThreadsResponse> {
+  const response = await fetch("/api/owner-chat/threads", {
+    credentials: "include",
+  });
+
+  return readJson<OwnerChatThreadsResponse>(response);
+}
+
+export async function deleteOwnerChatThread(threadId: string): Promise<{ ok: true }> {
+  const response = await fetch(`/api/owner-chat/threads/${threadId}`, {
+    method: "DELETE",
+    credentials: "include",
   });
 
   return readJson<{ ok: true }>(response);

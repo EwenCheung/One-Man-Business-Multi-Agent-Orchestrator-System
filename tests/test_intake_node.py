@@ -14,12 +14,22 @@ class _FakeQuery:
     def all(self):
         return []
 
+    def first(self):
+        return None
+
 
 class _FakeSession:
     def query(self, *args, **kwargs):
         return _FakeQuery()
 
-    def add(self, *args, **kwargs):
+    def add(self, obj, *args, **kwargs):
+        if not getattr(obj, "id", None):
+            import uuid
+
+            obj.id = uuid.uuid4()
+        return None
+
+    def flush(self):
         return None
 
     def commit(self):

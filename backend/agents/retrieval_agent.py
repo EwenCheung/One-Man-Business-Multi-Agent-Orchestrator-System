@@ -75,6 +75,9 @@ from backend.utils.llm_provider import get_chat_llm
 
 def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bool = False):
     """Build LangChain tool wrappers for the allowed functions, scoped to sender_id."""
+    role = (role or "").lower()
+    allow_internal_tools = allow_internal_tools or (role == "owner")
+    
     allowed_fns = get_tools_for_role(role)
     allowed_names = {fn.__name__ for fn in allowed_fns}
     if allow_internal_tools:
@@ -89,6 +92,8 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get the product catalog with name, description, selling price, stock, link, and category."""
             session = SessionLocal()
             try:
+                if role == "owner" and "get_full_product_table" in allowed_names:
+                    return json.dumps(rt.get_full_product_table(session), default=str)
                 return json.dumps(rt.get_product_catalog(session), default=str)
             finally:
                 session.close()
@@ -308,6 +313,10 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Find products semantically similar to the query string. Returns catalog fields."""
             session = SessionLocal()
             try:
+                if role == "owner" and "semantic_search_full_product_table" in allowed_names:
+                    return json.dumps(
+                        rt.semantic_search_full_product_table(session, query, top_k), default=str
+                    )
                 return json.dumps(
                     rt.semantic_search_product_catalog(session, query, top_k), default=str
                 )
@@ -500,22 +509,29 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
                 # Keep cost/margin data out of AgentResponse.result so it is not included
                 # in context compression or exposed in later LLM prompts / traces.
                 # Langfuse still captures the full tool call via LLM invocation tracing.
-                result_text = public_summary or "Internal negotiation guidance completed."
-                agent_response = AgentResponse(
-                    status="success",
-                    confidence="high",
-                    result=result_text,
-                    facts=[result_text],
-                    unknowns=[],
-                )
-                completed_task["status"] = "completed"
-                completed_task["result"] = agent_response.model_dump_json()
-                completed_task["internal_only"] = True
-                completed_task["public_summary"] = result_text
-                # internal_data is stored separately so approval_rules can check discount guidance
-                # without reading it from the compressed/logged result field.
-                # None means json.loads failed; approval_rules will fall back to result field.
-                completed_task["internal_data"] = internal_data
+                if role == "owner" and internal_data:
+                    completed_task["status"] = "completed"
+                    completed_task["result"] = internal_data
+                    completed_task["internal_only"] = False
+                    completed_task["public_summary"] = public_summary
+                    completed_task["owner_bypass"] = True
+                else:
+                    result_text = public_summary or "Internal negotiation guidance completed."
+                    agent_response = AgentResponse(
+                        status="success",
+                        confidence="high",
+                        result=result_text,
+                        facts=[result_text],
+                        unknowns=[],
+                    )
+                    completed_task["status"] = "completed"
+                    completed_task["result"] = agent_response.model_dump_json()
+                    completed_task["internal_only"] = True
+                    completed_task["public_summary"] = result_text
+                    # internal_data is stored separately so approval_rules can check discount guidance
+                    # without reading it from the compressed/logged result field.
+                    # None means json.loads failed; approval_rules will fall back to result field.
+                    completed_task["internal_data"] = internal_data
             else:
                 agent_response = AgentResponse(
                     status="success",

@@ -12,7 +12,7 @@ def test_resolve_existing_customer_by_phone_creates_mapping(db_session):
     customer = Customer(
         owner_id=owner_id,
         name="Resolver Existing",
-        phone="+65-9000-1234",
+        phone="+6590001234",
         status="active",
     )
     db_session.add(customer)

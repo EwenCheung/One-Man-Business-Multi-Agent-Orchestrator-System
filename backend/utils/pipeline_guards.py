@@ -128,6 +128,9 @@ def wrap_tool_with_permission_check(
     """
 
     def wrapped(*args, sender_role: str = "unknown", **kwargs):
+        if (sender_role or "").lower() == "owner":
+            return tool_fn(*args, **kwargs)
+
         if sender_role not in allowed_roles:
             track_permission_denial(
                 tool_name=tool_name,

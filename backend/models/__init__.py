@@ -10,6 +10,7 @@ class IncomingMessage(BaseModel):
     sender_id: str = Field(..., min_length=1)
     sender_name: str | None = None
     thread_id: str | None = None
+    sender_role: str | None = None
 
 
 class PipelineResult(BaseModel):
@@ -18,4 +19,3 @@ class PipelineResult(BaseModel):
     requires_approval: bool
     status: str
     trace: dict[str, Any] = Field(default_factory=dict)
-

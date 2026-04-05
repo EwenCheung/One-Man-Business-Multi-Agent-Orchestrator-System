@@ -6,14 +6,18 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/chat", label: "Chat to Agent" },
+  { href: "/messages", label: "Messages" },
   { href: "/pending-approvals", label: "Pending Approvals" },
   { href: "/daily-digest", label: "Daily Digest" },
   { href: "/memory", label: "Memory Centre" },
   { href: "/operations/products", label: "Products" },
+  { href: "/orders", label: "Orders" },
   { href: "/roles/customers", label: "Customers" },
   { href: "/roles/suppliers", label: "Suppliers" },
   { href: "/roles/investors", label: "Investors" },
   { href: "/roles/partners", label: "Partners" },
+  { href: "/profile", label: "Profile" },
 ];
 
 export default function Sidebar() {

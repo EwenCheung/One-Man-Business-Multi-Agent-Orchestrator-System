@@ -23,6 +23,9 @@ export default function SignupPage() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/verify-email`,
+      },
     });
 
     if (error) {
@@ -30,15 +33,26 @@ export default function SignupPage() {
       return;
     }
 
-    if (data.user) {
+    if (data?.user) {
+      const initialMemory = `# Long-Term Memory\n\nContext for ${businessName}. This document stores the evolving business history and context over time.`;
+      const initialSoul = `# System Persona\n\nYou are a proactive and strategic agent acting on behalf of ${fullName} for ${businessName}. You anticipate needs, analyze data intelligently, and communicate clearly.`;
+      const initialRule = `# Business Rules\n\nDefault operational rules for ${businessName}. Adhere to these constraints in all negotiations and logic.`;
+
       await supabase.from("profiles").upsert({
         id: data.user.id,
         full_name: fullName,
         business_name: businessName,
+        memory_context: initialMemory,
+        soul_context: initialSoul,
+        rule_context: initialRule,
       });
     }
 
-    router.push("/dashboard");
+    if (!data?.session) {
+      router.push("/verify-email");
+    } else {
+      router.push("/dashboard");
+    }
     router.refresh();
   }
 

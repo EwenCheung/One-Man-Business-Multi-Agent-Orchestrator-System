@@ -69,7 +69,7 @@ def get_customer_orders(session: Session, customer_id: str) -> list[dict[str, An
             Product.name.label("product_name"),
         )
         .join(Product, Order.product_id == Product.id)
-        .filter(Order.customer_id == customer_id)
+        .filter(Order.customer_id == uuid.UUID(customer_id))
         .all()
     )
     return [
@@ -98,7 +98,7 @@ def get_customer_profile(session: Session, customer_id: str) -> dict[str, Any] |
             Customer.status,
             Customer.preference,
         )
-        .filter(Customer.id == customer_id)
+        .filter(Customer.id == uuid.UUID(customer_id))
         .first()
     )
     if not c:
@@ -128,7 +128,7 @@ def get_supplier_profile(session: Session, supplier_id: str) -> dict[str, Any] |
             Supplier.category,
             Supplier.contract_notes,
         )
-        .filter(Supplier.id == supplier_id)
+        .filter(Supplier.id == uuid.UUID(supplier_id))
         .first()
     )
     if not s:
@@ -160,7 +160,7 @@ def get_supplier_contracts(session: Session, supplier_id: str) -> list[dict[str,
             Product.stock_number,
         )
         .join(Product, SupplierProduct.product_id == Product.id)
-        .filter(SupplierProduct.supplier_id == supplier_id)
+        .filter(SupplierProduct.supplier_id == uuid.UUID(supplier_id))
         .all()
     )
     return [
@@ -328,7 +328,7 @@ def get_all_orders(session: Session) -> list[dict[str, Any]]:
             Customer.name.label("customer_name"),
         )
         .join(Product, Order.product_id == Product.id)
-        .join(Customer, Order.customer_id == Customer.id)
+        .join(Customer, Order.customer_id == uuid.UUID(Customer).id)
         .all()
     )
     return [
@@ -367,7 +367,7 @@ def get_supply_overview(session: Session) -> list[dict[str, Any]]:
             Product.name.label("product_name"),
             Product.selling_price,
         )
-        .join(Supplier, SupplierProduct.supplier_id == Supplier.id)
+        .join(Supplier, SupplierProduct.supplier_id == uuid.UUID(Supplier).id)
         .join(Product, SupplierProduct.product_id == Product.id)
         .all()
     )
@@ -456,7 +456,7 @@ def get_partner_profile(session: Session, partner_id: str) -> dict[str, Any] | N
             Partner.phone,
             Partner.partner_type,
         )
-        .filter(Partner.id == partner_id)
+        .filter(Partner.id == uuid.UUID(partner_id))
         .first()
     )
     if not p:
@@ -472,7 +472,7 @@ def get_partner_profile(session: Session, partner_id: str) -> dict[str, Any] | N
 
 def get_partner_agreements(session: Session, partner_id: str) -> list[dict[str, Any]]:
     """Get all agreements for a specific partner."""
-    rows = session.query(PartnerAgreement).filter(PartnerAgreement.partner_id == partner_id).all()
+    rows = session.query(PartnerAgreement).filter(PartnerAgreement.partner_id == uuid.UUID(partner_id)).all()
     return [
         {
             "agreement_id": str(r.id),
@@ -498,7 +498,7 @@ def get_partner_products(session: Session, partner_id: str) -> list[dict[str, An
             Product.selling_price,
         )
         .join(Product, PartnerProductRelation.product_id == Product.id)
-        .filter(PartnerProductRelation.partner_id == partner_id)
+        .filter(PartnerProductRelation.partner_id == uuid.UUID(partner_id))
         .all()
     )
     return [
@@ -602,7 +602,7 @@ def semantic_search_supplier_contracts(
         session.query(SupplierProduct, Product, distance_expr.label("distance"))
         .join(Product, SupplierProduct.product_id == Product.id)
         .filter(
-            SupplierProduct.supplier_id == supplier_id,
+            SupplierProduct.supplier_id == uuid.UUID(supplier_id),
             SupplierProduct.notes_embedding.isnot(None),
         )
         .order_by(distance_expr)
@@ -639,7 +639,7 @@ def semantic_search_supply_overview(
     distance_expr = SupplierProduct.notes_embedding.cosine_distance(query_vector)
     rows = (
         session.query(SupplierProduct, Supplier, Product, distance_expr.label("distance"))
-        .join(Supplier, SupplierProduct.supplier_id == Supplier.id)
+        .join(Supplier, SupplierProduct.supplier_id == uuid.UUID(Supplier).id)
         .join(Product, SupplierProduct.product_id == Product.id)
         .filter(SupplierProduct.notes_embedding.isnot(None))
         .order_by(distance_expr)
@@ -675,7 +675,7 @@ def semantic_search_all_partner_agreements(
     distance_expr = PartnerAgreement.description_embedding.cosine_distance(query_vector)
     rows = (
         session.query(PartnerAgreement, Partner, distance_expr.label("distance"))
-        .join(Partner, PartnerAgreement.partner_id == Partner.id)
+        .join(Partner, PartnerAgreement.partner_id == uuid.UUID(Partner).id)
         .filter(PartnerAgreement.description_embedding.isnot(None))
         .order_by(distance_expr)
         .limit(k)
@@ -710,7 +710,7 @@ def semantic_search_partner_agreements(
     rows = (
         session.query(PartnerAgreement, distance_expr.label("distance"))
         .filter(
-            PartnerAgreement.partner_id == partner_id,
+            PartnerAgreement.partner_id == uuid.UUID(partner_id),
             PartnerAgreement.description_embedding.isnot(None),
         )
         .order_by(distance_expr)
