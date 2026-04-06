@@ -58,6 +58,6 @@ export async function POST(request: NextRequest) {
   try {
     return NextResponse.json(JSON.parse(text));
   } catch {
-    return NextResponse.json({ error: "Invalid response from backend" }, { status: 502 });
+    return NextResponse.json({ error: "Failed to parse backend response as JSON" }, { status: 502 });
   }
 }
