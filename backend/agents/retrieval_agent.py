@@ -500,7 +500,7 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
     llm_with_tools = llm.bind_tools(tools)
 
     messages = [
-
+        
         SystemMessage(
             content=(
                 "You are an Internal Data Retriever. Your ONLY job is to find and return "
