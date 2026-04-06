@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
 export default function LoginPage() {
-  const supabase = createClient();
   const router = useRouter();
 
   const [email, setEmail] = useState("");
@@ -16,6 +15,8 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setErrorMessage("");
+
+    const supabase = createClient();
 
     const { error } = await supabase.auth.signInWithPassword({
       email,

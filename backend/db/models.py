@@ -105,7 +105,6 @@ class Product(Base):
     partner_product_relations: Mapped[list["PartnerProductRelation"]] = relationship(
         back_populates="product"
     )
-    investor_metrics: Mapped[list["InvestorProductMetric"]] = relationship(back_populates="product")
 
     __table_args__ = (
         Index(
@@ -205,21 +204,6 @@ class Investor(Base):
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
-
-class InvestorProductMetric(Base):
-    __tablename__ = "investor_product_metrics"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"))
-    cost: Mapped[Optional[Decimal]] = mapped_column(Numeric, nullable=True)
-    selling_price: Mapped[Optional[Decimal]] = mapped_column(Numeric, nullable=True)
-    roi: Mapped[Optional[Decimal]] = mapped_column(Numeric, nullable=True)
-    daily_sales: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, server_default="0")
-    created_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    product: Mapped["Product"] = relationship(back_populates="investor_metrics")
 
 
 # ─── PARTNER TABLES ───
@@ -334,12 +318,69 @@ class Message(Base):
     __tablename__ = "messages"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=True
+    )
     sender_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sender_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sender_role: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     direction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    conversation_thread: Mapped[Optional["ConversationThread"]] = relationship(
+        back_populates="messages"
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_messages_owner_thread_created_at",
+            "owner_id",
+            "conversation_thread_id",
+            "created_at",
+        ),
+    )
+
+
+class ConversationThread(Base):
+    __tablename__ = "conversation_threads"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    thread_type: Mapped[str] = mapped_column(Text)
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sender_external_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sender_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sender_role: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sender_channel: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    messages: Mapped[list["Message"]] = relationship(back_populates="conversation_thread")
+    sender_memories: Mapped[list["ConversationSenderMemory"]] = relationship(
+        back_populates="conversation_thread"
+    )
+    conversation_memories: Mapped[list["ConversationMemory"]] = relationship(
+        back_populates="conversation_thread"
+    )
+
+    __table_args__ = (
+        Index("ix_conversation_threads_owner_type", "owner_id", "thread_type"),
+        Index("ix_conversation_threads_owner_last_message_at", "owner_id", "last_message_at"),
+        Index(
+            "ux_conversation_threads_external_sender",
+            "owner_id",
+            "thread_type",
+            "sender_channel",
+            "sender_external_id",
+            unique=True,
+            postgresql_where=(thread_type == "external_sender"),
+        ),
+    )
 
 
 class MemoryEntry(Base):
@@ -390,6 +431,9 @@ class PendingApproval(Base):
     )
     proposal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("memory_update_proposals.id"), nullable=True
+    )
+    held_reply_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("held_replies.id"), nullable=True
     )
 
 
@@ -486,6 +530,9 @@ class ConversationMemory(Base):
     __tablename__ = "conversation_memories"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=True
+    )
     entity_role: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     summary: Mapped[str] = mapped_column(Text)
@@ -495,6 +542,51 @@ class ConversationMemory(Base):
     )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    conversation_thread: Mapped[Optional["ConversationThread"]] = relationship(
+        back_populates="conversation_memories"
+    )
+
+
+class ConversationSenderMemory(Base):
+    __tablename__ = "conversation_sender_memories"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id")
+    )
+    sender_external_id: Mapped[str] = mapped_column(Text)
+    sender_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sender_role: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[str] = mapped_column(Text)
+    message_count_since_update: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, server_default="0"
+    )
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_summarized_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    conversation_thread: Mapped["ConversationThread"] = relationship(
+        back_populates="sender_memories"
+    )
+
+    __table_args__ = (
+        Index(
+            "ux_conversation_sender_memories_owner_thread_sender",
+            "owner_id",
+            "conversation_thread_id",
+            "sender_external_id",
+            unique=True,
+        ),
+        Index("ix_conversation_sender_memories_owner_updated_at", "owner_id", "updated_at"),
     )
 
 
@@ -515,6 +607,30 @@ class Profile(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     full_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     business_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_industry: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_timezone: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, server_default="UTC"
+    )
+    preferred_language: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, server_default="en"
+    )
+    default_reply_tone: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, server_default="professional"
+    )
+    sender_summary_threshold: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, server_default="20"
+    )
+    notifications_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notifications_enabled: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True, server_default="true"
+    )
+    memory_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    soul_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rule_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

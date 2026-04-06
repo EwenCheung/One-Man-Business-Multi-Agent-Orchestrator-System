@@ -1,5 +1,6 @@
 import "./globals.css";
 import AppShell from "@/components/app-shell";
+import { QueryProvider } from "@/providers/query-provider";
 import type { ReactNode } from "react";
 
 export const metadata = {
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AppShell>{children}</AppShell>
+        <QueryProvider>
+          <AppShell>{children}</AppShell>
+        </QueryProvider>
       </body>
     </html>
   );

@@ -102,6 +102,8 @@ and synthesize the results via constraint-based planning.
 
 6. **Replan Limits:** You are on Replan Cycle {replan_count} of {max_replans}. If you hit the limit, you MUST set `route_to_reply=True` and draft a fallback/safe reply with what you have.
 
+7. **Owner Mode:** If the sender is 'owner', act as their proactive business partner. Do not just answer the literal question; fan-out tasks to fetch surrounding context (like stock levels, cost prices, and active supplier contracts) so the final reply provides deep, actionable business insights.
+
 ### Few-Shot Examples
 **Example 1: Initial Request needing planning**
 *State:* User asking for laptop discounts.
@@ -136,6 +138,7 @@ and synthesize the results via constraint-based planning.
 - Intent: {intent_label} | Urgency: {urgency_level}
 - Original Message: {raw_message}
 - Long-Term Preferences: {long_term_memory}
+- Sender Memory Summary: {sender_memory}
 - Short-Term Chat History: {short_term_memory}
 
 ### Feedback Loop States
@@ -337,6 +340,7 @@ def orchestrator_agent(state: dict[str, Any]) -> dict[str, Any]:
         "raw_message": raw_message,
         "rules_context": state.get("rules_context", ""),
         "long_term_memory": state.get("long_term_memory", ""),
+        "sender_memory": state.get("sender_memory", ""),
         "short_term_memory": state.get("short_term_memory", []),
         "completed_tasks_text": completed_text if completed_text else "None yet.",
         "failed_tasks_text": failed_text if failed_text else "None.",

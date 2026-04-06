@@ -65,6 +65,13 @@ def risk_node(state: dict[str, Any]) -> dict[str, Any]:
     approval_rule_flags: list[str] = state.get("approval_rule_flags", [])
     approval_rule_requires_approval: bool = state.get("approval_rule_requires_approval", False)
 
+    if (sender_role or "").lower() == "owner":
+        return {
+            "risk_level": "low",
+            "risk_flags": [],
+            "requires_approval": False,
+        }
+
     if not approval_rule_flags and not approval_rule_requires_approval:
         approval_result = approval_rule_node(state)
         approval_rule_flags = list(approval_result.get("approval_rule_flags", []))

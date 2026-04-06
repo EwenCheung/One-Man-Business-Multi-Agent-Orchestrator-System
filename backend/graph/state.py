@@ -34,6 +34,7 @@ class PipelineState(TypedDict, total=False):
     trace_id: str
     sender_name: str
     thread_id: str
+    conversation_thread_id: str
     source_type: str
 
     # ── Intake Agent output ───────────────────────────────────
@@ -42,6 +43,7 @@ class PipelineState(TypedDict, total=False):
     urgency_level: str
     short_term_memory: list[dict[str, Any]]  # Recent chat history
     long_term_memory: str  # Summary or MEMORY.md abstract
+    sender_memory: str
     soul_context: str  # Loaded from SOUL.md
     rules_context: str  # Loaded from RULE.md
     guardrails_passed: bool

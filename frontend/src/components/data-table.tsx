@@ -1,11 +1,19 @@
 import { TableColumn } from "@/lib/types";
 
-type DataTableProps<T extends Record<string, string>> = {
+type DataTableProps<T extends Record<string, unknown>> = {
   columns: TableColumn<T>[];
   data: T[];
 };
 
-export default function DataTable<T extends Record<string, string>>({
+function renderCellValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+
+  return String(value);
+}
+
+export default function DataTable<T extends Record<string, unknown>>({
   columns,
   data,
 }: DataTableProps<T>) {
@@ -36,7 +44,14 @@ export default function DataTable<T extends Record<string, string>>({
                     key={String(column.key)}
                     className="px-5 py-4 text-sm text-zinc-700"
                   >
-                    {row[column.key]}
+                    {column.render
+                      ? column.render(
+                          column.key in row ? row[column.key as keyof T] : undefined,
+                          row
+                        )
+                      : renderCellValue(
+                          column.key in row ? row[column.key as keyof T] : undefined
+                        )}
                   </td>
                 ))}
               </tr>

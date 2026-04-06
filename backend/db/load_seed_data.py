@@ -12,12 +12,15 @@ Usage:
 
 import concurrent.futures
 import csv
+import json
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, Date, Integer, Numeric
-from sqlalchemy.dialects.postgresql import UUID as UUIDType
+from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric
+from sqlalchemy.dialects.postgresql import ARRAY as PGArray, JSONB as JSONBType, UUID as UUIDType
 import uuid
 from sqlalchemy.orm import Session
 
@@ -35,6 +38,13 @@ _MODEL_MAP = {
     "supply_contracts.csv": models.SupplierProduct,
     "partner_agreements.csv": models.PartnerAgreement,
     "partner_products.csv": models.PartnerProductRelation,
+    "external_identities.csv": models.ExternalIdentity,
+    "conversation_threads.csv": models.ConversationThread,
+    "messages.csv": models.Message,
+    "memory_update_proposals.csv": models.MemoryUpdateProposal,
+    "held_replies.csv": models.HeldReply,
+    "reply_review_records.csv": models.ReplyReviewRecord,
+    "pending_approvals.csv": models.PendingApproval,
 }
 
 # Insertion order respects foreign key constraints
@@ -47,10 +57,17 @@ _LOAD_ORDER = [
     "supply_contracts.csv",
     "partner_agreements.csv",
     "partner_products.csv",
+    "external_identities.csv",
+    "conversation_threads.csv",
+    "messages.csv",
+    "memory_update_proposals.csv",
+    "held_replies.csv",
+    "reply_review_records.csv",
+    "pending_approvals.csv",
 ]
 
 
-def _coerce_row(row: dict, model) -> dict:
+def _coerce_row(row: dict[str, str], model: Any) -> dict[str, Any]:
     """Cast CSV string values to the correct Python types for each column."""
     col_types = {c.key: c.type for c in model.__table__.columns}
     cleaned = {}
@@ -69,8 +86,15 @@ def _coerce_row(row: dict, model) -> dict:
             cleaned[k] = v.lower() in ("true", "1", "yes")
         elif isinstance(col_type, Date):
             cleaned[k] = date.fromisoformat(v)
+        elif isinstance(col_type, DateTime):
+            cleaned[k] = datetime.fromisoformat(v.replace("Z", "+00:00"))
         elif isinstance(col_type, UUIDType):
             cleaned[k] = uuid.UUID(v) if v else None
+        elif isinstance(col_type, JSONBType):
+            cleaned[k] = json.loads(v)
+        elif isinstance(col_type, PGArray):
+            parsed = json.loads(v)
+            cleaned[k] = parsed if isinstance(parsed, list) else [str(parsed)]
         else:
             cleaned[k] = v
     return cleaned
