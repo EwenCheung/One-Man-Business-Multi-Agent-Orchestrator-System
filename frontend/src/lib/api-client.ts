@@ -302,3 +302,20 @@ export async function deleteOwnerChatThread(threadId: string): Promise<{ ok: tru
 
   return readJson<{ ok: true }>(response);
 }
+
+export async function sendOwnerChatMessage(params: {
+  raw_message: string;
+  thread_id?: string;
+  sender_name?: string;
+}): Promise<{ reply_text: string; requires_approval?: boolean; trace?: Record<string, unknown> }> {
+  const response = await fetch("/api/owner-chat/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(params),
+  });
+
+  return readJson(response);
+}

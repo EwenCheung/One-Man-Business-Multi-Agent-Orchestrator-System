@@ -52,3 +52,6 @@ uv.lock
 .playwright-mcp/
 .ruff_cache/
 .sisyphus/
+
+# Playwright test results
+frontend/test-results/

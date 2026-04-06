@@ -82,7 +82,6 @@ def get_tools_for_role(role: str) -> list:
     role = role.lower()
     
     if role == "owner":
-        import inspect
         from backend.tools import retrieval_tools as rt
         allowed = []
         for name, fn in vars(rt).items():

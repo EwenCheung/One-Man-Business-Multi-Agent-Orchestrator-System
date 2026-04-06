@@ -94,7 +94,6 @@ async def receive_message(incoming: IncomingMessage):
         "trace_id": uuid.uuid4().hex,
         "sender_name": incoming.sender_name or "Unknown",
         "thread_id": incoming.thread_id or incoming.sender_id,
-        "sender_role": incoming.sender_role,
     }
 
     # Setup Langfuse callbacks if configured

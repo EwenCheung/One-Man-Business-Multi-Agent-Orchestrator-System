@@ -328,7 +328,7 @@ def get_all_orders(session: Session) -> list[dict[str, Any]]:
             Customer.name.label("customer_name"),
         )
         .join(Product, Order.product_id == Product.id)
-        .join(Customer, Order.customer_id == uuid.UUID(Customer).id)
+        .join(Customer, Order.customer_id == Customer.id)
         .all()
     )
     return [
@@ -367,7 +367,7 @@ def get_supply_overview(session: Session) -> list[dict[str, Any]]:
             Product.name.label("product_name"),
             Product.selling_price,
         )
-        .join(Supplier, SupplierProduct.supplier_id == uuid.UUID(Supplier).id)
+        .join(Supplier, SupplierProduct.supplier_id == Supplier.id)
         .join(Product, SupplierProduct.product_id == Product.id)
         .all()
     )
@@ -639,7 +639,7 @@ def semantic_search_supply_overview(
     distance_expr = SupplierProduct.notes_embedding.cosine_distance(query_vector)
     rows = (
         session.query(SupplierProduct, Supplier, Product, distance_expr.label("distance"))
-        .join(Supplier, SupplierProduct.supplier_id == uuid.UUID(Supplier).id)
+        .join(Supplier, SupplierProduct.supplier_id == Supplier.id)
         .join(Product, SupplierProduct.product_id == Product.id)
         .filter(SupplierProduct.notes_embedding.isnot(None))
         .order_by(distance_expr)
@@ -675,7 +675,7 @@ def semantic_search_all_partner_agreements(
     distance_expr = PartnerAgreement.description_embedding.cosine_distance(query_vector)
     rows = (
         session.query(PartnerAgreement, Partner, distance_expr.label("distance"))
-        .join(Partner, PartnerAgreement.partner_id == uuid.UUID(Partner).id)
+        .join(Partner, PartnerAgreement.partner_id == Partner.id)
         .filter(PartnerAgreement.description_embedding.isnot(None))
         .order_by(distance_expr)
         .limit(k)

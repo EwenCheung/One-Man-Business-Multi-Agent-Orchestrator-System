@@ -55,6 +55,12 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await getAuthenticatedClient({ redirectOnFail: false });
+
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = (await request.json()) as {
     action?: ApprovalAction;
     item?: ApprovalPayload;

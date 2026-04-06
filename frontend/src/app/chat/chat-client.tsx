@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Send, Loader2, User, Bot, MessageSquare, Trash2, Plus } from "lucide-react";
-import { fetchOwnerChatThreads, deleteOwnerChatThread } from "@/lib/api-client";
+import { fetchOwnerChatThreads, deleteOwnerChatThread, sendOwnerChatMessage } from "@/lib/api-client";
 import type { OwnerChatThread } from "@/lib/types";
 
 interface ChatMessage {
@@ -106,34 +106,16 @@ export default function ChatClient() {
     setIsLoading(true);
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
       const threadId = selectedThreadId || `owner-thread-${Date.now()}`;
-      
-      const payload = {
-        raw_message: userMessage.content,
-        sender_id: "owner-session-id",
-        sender_name: "Owner",
-        sender_role: "owner",
-        thread_id: threadId,
-      };
 
       if (!selectedThreadId) {
         setSelectedThreadId(threadId);
       }
 
-      const res = await fetch(`${backendUrl}/api/v1/messages/incoming`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+      const data = await sendOwnerChatMessage({
+        raw_message: userMessage.content,
+        thread_id: threadId,
       });
-
-      if (!res.ok) {
-        throw new Error("Failed to send message to agent");
-      }
-
-      const data = await res.json();
       
       const agentMessage: ChatMessage = {
         id: crypto.randomUUID(),

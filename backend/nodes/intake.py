@@ -53,31 +53,32 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     try:
         requested_thread_id = str(state.get("thread_id") or "").strip() or None
 
-        if str(state.get("sender_role", "")).lower() == "owner":
-            sender_role = "owner"
-            sender_id = external_sender_id
-            entity_id = external_sender_id
-            owner_id_to_use = settings.OWNER_ID
-            thread = get_or_create_conversation_thread(
-                session,
-                owner_id=owner_id_to_use,
-                sender_role="owner",
-                external_sender_id=external_sender_id,
-                sender_name=sender_name,
-                requested_thread_id=requested_thread_id,
-            )
+        resolved_identity = resolve_or_create_sender(session, external_sender_id, sender_name)
+        sender_role = resolved_identity["sender_role"]
+        sender_id = resolved_identity["sender_id"]
+        entity_id = resolved_identity["entity_id"]
+        owner_id_to_use = str(resolved_identity["owner_id"])
+        thread = get_or_create_conversation_thread(
+            session,
+            owner_id=owner_id_to_use,
+            sender_role=sender_role,
+            external_sender_id=external_sender_id,
+            sender_name=sender_name,
+            requested_thread_id=requested_thread_id,
+        )
 
-            _ = add_message_to_thread(
-                session,
-                owner_id=owner_id_to_use,
-                conversation_thread_id=thread.id,
-                sender_id=external_sender_id,
-                sender_name=sender_name,
-                sender_role=sender_role,
-                direction="inbound",
-                content=cleaned_message,
-            )
+        _ = add_message_to_thread(
+            session,
+            owner_id=owner_id_to_use,
+            conversation_thread_id=thread.id,
+            sender_id=external_sender_id,
+            sender_name=sender_name,
+            sender_role=sender_role,
+            direction="inbound",
+            content=cleaned_message,
+        )
 
+        if sender_role == "owner":
             short_term = get_short_term_memory(
                 session,
                 owner_id=owner_id_to_use,
@@ -85,34 +86,7 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
                 limit=10,
             )
             long_term = get_long_term_owner_memory(session, owner_id=owner_id_to_use)
-            conversation_thread_id = str(thread.id)
-            thread_id = conversation_thread_id
         else:
-            resolved_identity = resolve_or_create_sender(session, external_sender_id, sender_name)
-            sender_role = resolved_identity["sender_role"]
-            sender_id = resolved_identity["sender_id"]
-            entity_id = resolved_identity["entity_id"]
-            owner_id_to_use = str(resolved_identity["owner_id"])
-            thread = get_or_create_conversation_thread(
-                session,
-                owner_id=owner_id_to_use,
-                sender_role=sender_role,
-                external_sender_id=external_sender_id,
-                sender_name=sender_name,
-                requested_thread_id=requested_thread_id,
-            )
-
-            _ = add_message_to_thread(
-                session,
-                owner_id=owner_id_to_use,
-                conversation_thread_id=thread.id,
-                sender_id=external_sender_id,
-                sender_name=sender_name,
-                sender_role=sender_role,
-                direction="inbound",
-                content=cleaned_message,
-            )
-
             _ = increment_sender_memory_counter(
                 session,
                 owner_id=owner_id_to_use,
@@ -142,8 +116,9 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
             )
             long_term = str(memory_layers.get("long_term_memory") or "")
             sender_memory = str(memory_layers.get("sender_memory") or "")
-            conversation_thread_id = str(thread.id)
-            thread_id = conversation_thread_id
+
+        conversation_thread_id = str(thread.id)
+        thread_id = conversation_thread_id
 
         session.commit()
     except Exception as e:
