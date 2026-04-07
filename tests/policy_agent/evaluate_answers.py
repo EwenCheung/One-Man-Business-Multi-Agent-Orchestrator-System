@@ -46,11 +46,10 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 
-from backend.agents.policy_agent import PolicyDecision, _evaluate
+from backend.agents.policy_agent import PolicyDecision, _evaluate, _retrieve
 from backend.config import settings
 from backend.db.engine import SessionLocal
 from backend.db.models import PolicyChunk
-from backend.tools.policy_tools import rerank_chunks, search_policy_chunks
 from backend.utils.llm_provider import get_chat_llm
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -120,25 +119,18 @@ def _run_query(session, entry: dict, llm) -> dict:
     query = entry["query"]
     sender_role = entry.get("sender_role", "customer")
 
-    # Search
+    # Search + rerank
     t0 = time.perf_counter()
-    candidates = search_policy_chunks(session, query)
+    candidates = _retrieve(session, query, sender_role)
     t_search = (time.perf_counter() - t0) * 1000
-
-    # Rerank
-    t1 = time.perf_counter()
-    try:
-        chunks = rerank_chunks(query, candidates)
-    except Exception:
-        chunks = candidates[: settings.POLICY_TOP_N]
-    t_rerank = (time.perf_counter() - t1) * 1000
+    t_rerank = 0.0  # absorbed into _retrieve
 
     # Evaluate
     t2 = time.perf_counter()
-    decision: PolicyDecision = _evaluate(query, chunks, sender_role, llm)
+    decision: PolicyDecision = _evaluate(query, candidates, sender_role, llm)
     t_eval = (time.perf_counter() - t2) * 1000
 
-    context_texts = [c["chunk_text"] for c in chunks]
+    context_texts = [c["chunk_text"] for c in candidates]
     faith = _faithfulness_proxy(decision.supporting_rules, context_texts)
 
     exp_verdict = entry["expected_verdict"]
