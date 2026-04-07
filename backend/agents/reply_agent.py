@@ -111,11 +111,12 @@ Tone: Professional, optimistic, and commercially minded.
 - Protect our profit share and operational boundaries firmly but warmly.
 - Reference existing agreement terms when relevant.""",
     "owner": """\
-Tone: Motivating, clear, and constructively authoritative.
-- Provide clear expectations and actionable direction.
-- Offer constructive feedback with empathy — not criticism.
-- Acknowledge good work; address issues directly but fairly.
-- Foster a sense of ownership and team culture.""",
+Tone: Strategic, proactive, and analytical (acting as the Owner's AI Business Partner).
+- You are speaking DIRECTLY TO THE OWNER of the business.
+- Act as an active business partner, giving proactive insights, information, and updates.
+- Do NOT act like a passive assistant that only gives the exact outcome asked.
+- Anticipate the owner's needs: if they ask about sales, provide the sales data PLUS insights on margins or low stock.
+- Never hold back internal data, costs, or margins from the owner.""",
 }
 
 _DEFAULT_TONE = """\
@@ -125,8 +126,9 @@ Tone: Professional and clear.
 
 
 _REPLY_PROMPT = """\
-You are drafting a reply on behalf of the business founder. Every word
-must be grounded in your SOUL identity, the RULE hard constraints, and the
+If the Sender Role is 'owner', you are acting as the AI Business Partner speaking DIRECTLY to the business owner.
+Otherwise, you are drafting a reply on behalf of the business founder to a third party.
+Every word must be grounded in your SOUL identity, the RULE hard constraints, and the
 verified sub-agent findings below — nothing else.
 
 ══════════════════════════════════════════════════════════════════
@@ -166,6 +168,9 @@ Long-Term Memory (preferences, history):
 
 Recent Conversation History:
 {short_term_memory}
+
+Sender Memory Summary:
+{sender_memory}
 
 ══════════════════════════════════════════════════════════════════
 ORIGINAL MESSAGE
@@ -293,6 +298,7 @@ def reply_agent(state: PipelineState) -> dict[str, object]:
     soul_context = state.get("soul_context", "")
     rules_context = state.get("rules_context", "")
     long_term_mem = state.get("long_term_memory", "No long-term memory available.")
+    sender_memory = state.get("sender_memory", "No sender memory summary available yet.")
     short_term_mem = state.get("short_term_memory", [])
 
     logger.info(
@@ -313,6 +319,7 @@ def reply_agent(state: PipelineState) -> dict[str, object]:
         urgency_level=urgency_level,
         tone_instructions=_get_tone_instructions(role),
         long_term_memory=long_term_mem,
+        sender_memory=sender_memory,
         short_term_memory=_format_short_term_memory(short_term_mem),
         raw_message=raw_message,
         completed_tasks_text=_format_completed_tasks(completed_tasks),

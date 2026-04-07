@@ -5,9 +5,10 @@ import uuid
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from backend.config import settings
-from backend.db.models import Customer, ExternalIdentity, Investor, Partner, Supplier
+from backend.db.models import Customer, ExternalIdentity, Investor, Partner, Supplier, Profile
 
 
 def _canonical_phone(value: str) -> str:
@@ -53,8 +54,13 @@ def _role_model_pairs() -> list[tuple[str, type]]:
 
 
 def _find_existing_entity_by_uuid(session: Session, candidate_id: str) -> dict[str, Any] | None:
+    try:
+        candidate_uuid = uuid.UUID(str(candidate_id))
+    except (ValueError, TypeError):
+        return None
+
     for role, model in _role_model_pairs():
-        row = session.query(model).filter_by(id=candidate_id).first()
+        row = session.query(model).filter_by(id=candidate_uuid).first()
         if row:
             return {
                 "entity_role": role,
@@ -108,11 +114,21 @@ def _ensure_external_identity(
     entity_role: str,
     entity_id: str,
 ) -> None:
+    try:
+        owner_uuid = uuid.UUID(str(owner_id))
+    except (ValueError, TypeError):
+        owner_uuid = owner_id
+
+    try:
+        entity_uuid = uuid.UUID(str(entity_id))
+    except (ValueError, TypeError):
+        entity_uuid = entity_id
+
     normalized_external_id = _normalize_external_id(external_id, external_type)
     existing = (
         session.query(ExternalIdentity)
         .filter_by(
-            owner_id=owner_id,
+            owner_id=owner_uuid,
             external_type=external_type,
             external_id=normalized_external_id,
         )
@@ -123,14 +139,53 @@ def _ensure_external_identity(
 
     session.add(
         ExternalIdentity(
-            owner_id=owner_id,
+            owner_id=owner_uuid,
             external_id=normalized_external_id,
             external_type=external_type,
             entity_role=entity_role,
-            entity_id=entity_id,
+            entity_id=entity_uuid,
             identity_metadata={"source": "auto-resolved"},
         )
     )
+
+
+def _is_owner_identity(
+    session: Session,
+    external_sender_id: str,
+    external_type: str,
+    normalized_external_id: str,
+) -> bool:
+    """Check if the incoming sender identity matches the owner UUID or email."""
+    owner_uuid = uuid.UUID(settings.OWNER_ID)
+
+    # Case 1: Sender ID matches owner UUID
+    if _looks_like_uuid(external_sender_id):
+        try:
+            sender_uuid = uuid.UUID(str(external_sender_id))
+            if sender_uuid == owner_uuid:
+                return True
+        except (ValueError, TypeError):
+            pass
+
+    # Case 2: Email matches owner's profile email or auth.users email
+    if external_type == "email":
+        owner_profile = session.query(Profile).filter_by(id=owner_uuid).first()
+        if owner_profile and owner_profile.notifications_email:
+            owner_email = _canonical_email(owner_profile.notifications_email)
+            if normalized_external_id == owner_email:
+                return True
+
+        # Fallback: check auth.users if profile email not set
+        result = session.execute(
+            text("SELECT email FROM auth.users WHERE id = :owner_id"),
+            {"owner_id": str(owner_uuid)},
+        ).first()
+        if result and result[0]:
+            auth_email = _canonical_email(result[0])
+            if normalized_external_id == auth_email:
+                return True
+
+    return False
 
 
 def resolve_or_create_sender(
@@ -141,6 +196,16 @@ def resolve_or_create_sender(
     owner_uuid = uuid.UUID(settings.OWNER_ID)
     external_type = _detect_external_type(external_sender_id)
     normalized_external_id = _normalize_external_id(external_sender_id, external_type)
+
+    # Guard: if sender matches owner, return owner identity without creating customer
+    if _is_owner_identity(session, external_sender_id, external_type, normalized_external_id):
+        return {
+            "external_sender_id": external_sender_id,
+            "sender_id": str(owner_uuid),
+            "entity_id": str(owner_uuid),
+            "sender_role": "owner",
+            "owner_id": str(owner_uuid),
+        }
 
     if _looks_like_uuid(external_sender_id):
         by_uuid = _find_existing_entity_by_uuid(session, external_sender_id)

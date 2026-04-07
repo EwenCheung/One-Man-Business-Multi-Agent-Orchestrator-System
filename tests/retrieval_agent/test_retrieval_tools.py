@@ -84,6 +84,7 @@ class TestRolePermissions:
             "get_customer_profile",
             "evaluate_discount_request",
             "semantic_search_product_catalog",
+            "evaluate_discount_request",
         }
 
     def test_supplier_has_exactly_5_tools(self):

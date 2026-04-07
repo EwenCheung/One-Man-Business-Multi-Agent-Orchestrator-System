@@ -38,50 +38,26 @@ def approve_memory(proposal_id: str):
             proposed_content = json.loads(proposed_content)
 
         import uuid
+        from backend.db.models import MemoryEntry
 
+        entries = []
         for record in proposed_content:
-            session.execute(
-                text("""
-                    INSERT INTO public.memory_entries (
-                        id,
-                        owner_id,
-                        sender_id,
-                        sender_name,
-                        sender_role,
-                        memory_type,
-                        content,
-                        summary,
-                        tags,
-                        importance,
-                        created_at
-                    )
-                    VALUES (
-                        :id,
-                        :owner_id,
-                        :sender_id,
-                        :sender_name,
-                        :sender_role,
-                        :memory_type,
-                        :content,
-                        :summary,
-                        :tags,
-                        :importance,
-                        now()
-                    )
-                """),
-                {
-                    "id": uuid.uuid4(),
-                    "owner_id": proposal["owner_id"],
-                    "sender_id": record.get("sender_id"),
-                    "sender_name": record.get("sender_name"),
-                    "sender_role": record.get("sender_role"),
-                    "memory_type": record.get("memory_type"),
-                    "content": record.get("content"),
-                    "summary": record.get("summary"),
-                    "tags": record.get("tags", []),
-                    "importance": record.get("importance", 0.5),
-                },
+            entries.append(
+                MemoryEntry(
+                    id=uuid.uuid4(),
+                    owner_id=proposal["owner_id"],
+                    sender_id=record.get("sender_id"),
+                    sender_name=record.get("sender_name"),
+                    sender_role=record.get("sender_role"),
+                    memory_type=record.get("memory_type"),
+                    content=record.get("content"),
+                    summary=record.get("summary"),
+                    tags=record.get("tags", []),
+                    importance=record.get("importance", 0.5),
+                )
             )
+        if entries:
+            session.add_all(entries)
 
         session.execute(
             text("""
@@ -182,6 +158,11 @@ def hold_reply(
     """
     import uuid
 
+    try:
+        owner_uuid = uuid.UUID(str(owner_id))
+    except (ValueError, TypeError):
+        owner_uuid = owner_id
+
     session = SessionLocal()
     try:
         new_id = uuid.uuid4()
@@ -199,7 +180,7 @@ def hold_reply(
             """),
             {
                 "id": new_id,
-                "owner_id": owner_id,
+                "owner_id": owner_uuid,
                 "thread_id": thread_id,
                 "sender_id": sender_id,
                 "sender_name": sender_name,
@@ -216,7 +197,7 @@ def hold_reply(
             text("""
                 INSERT INTO public.pending_approvals (
                     id, owner_id, title, sender, preview,
-                    proposal_type, risk_level, status
+                    proposal_type, risk_level, status, held_reply_id
                 )
                 VALUES (
                     :id,
@@ -226,16 +207,18 @@ def hold_reply(
                     :preview,
                     'reply-approval',
                     :risk_level,
-                    'pending'
+                    'pending',
+                    :held_reply_id
                 )
             """),
             {
                 "id": uuid.uuid4(),
-                "owner_id": owner_id,
+                "owner_id": owner_uuid,
                 "title": f"Reply requires approval ({risk_level} risk)",
                 "sender": sender_name or "Unknown",
                 "preview": reply_text[:200],
                 "risk_level": risk_level,
+                "held_reply_id": new_id,
             },
         )
 
@@ -254,7 +237,7 @@ def hold_reply(
             """),
             {
                 "id": uuid.uuid4(),
-                "owner_id": owner_id,
+                "owner_id": owner_uuid,
                 "trace_id": trace_id,
                 "thread_id": thread_id,
                 "sender_id": sender_id,
@@ -304,25 +287,45 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
 
         message_id = uuid.uuid4()
 
+        conversation_thread_uuid = None
+        if result.get("thread_id"):
+            try:
+                conversation_thread_uuid = uuid.UUID(str(result["thread_id"]))
+            except (ValueError, TypeError):
+                conversation_thread_uuid = None
+
         # Save to messages table since it's now approved to be sent
         session.execute(
             text("""
                 INSERT INTO public.messages (
-                    id, owner_id, sender_id, sender_name, sender_role, direction, content
+                    id, owner_id, conversation_thread_id, sender_id, sender_name, sender_role, direction, content
                 )
                 VALUES (
-                    :id, :owner_id, :sender_id, :sender_name, :sender_role, 'outbound', :content
+                    :id, :owner_id, :conversation_thread_id, :sender_id, :sender_name, :sender_role, 'outbound', :content
                 )
             """),
             {
                 "id": message_id,
                 "owner_id": result["owner_id"],
+                "conversation_thread_id": conversation_thread_uuid,
                 "sender_id": result["sender_id"],
                 "sender_name": result["sender_name"],
                 "sender_role": result["sender_role"],
                 "content": result["reply_text"],
             },
         )
+
+        if str(result.get("sender_role", "")).lower() != "owner" and conversation_thread_uuid:
+            from backend.services.conversation_memory import increment_sender_memory_counter
+
+            _ = increment_sender_memory_counter(
+                session,
+                owner_id=result["owner_id"],
+                conversation_thread_id=conversation_thread_uuid,
+                sender_external_id=result["sender_id"],
+                sender_name=result["sender_name"],
+                sender_role=result["sender_role"],
+            )
 
         session.execute(
             text("""
@@ -333,6 +336,15 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
                 WHERE held_reply_id = :held_reply_id
             """),
             {"held_reply_id": held_reply_id, "message_id": message_id},
+        )
+
+        session.execute(
+            text("""
+                UPDATE public.pending_approvals
+                SET status = 'approved'
+                WHERE held_reply_id = :held_reply_id
+            """),
+            {"held_reply_id": held_reply_id},
         )
 
         review_record = (
@@ -360,6 +372,7 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
                 "external_sender_id": result["sender_id"],
                 "sender_name": result["sender_name"],
                 "sender_role": result["sender_role"],
+                "conversation_thread_id": result.get("thread_id"),
                 "thread_id": result.get("thread_id"),
                 "trace_id": review_record["trace_id"] if review_record else None,
                 "raw_message": review_record["raw_message"] if review_record else "",
@@ -416,6 +429,15 @@ def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
                 WHERE held_reply_id = :held_reply_id
             """),
             {"held_reply_id": held_reply_id, "reason": reason},
+        )
+
+        session.execute(
+            text("""
+                UPDATE public.pending_approvals
+                SET status = 'rejected'
+                WHERE held_reply_id = :held_reply_id
+            """),
+            {"held_reply_id": held_reply_id},
         )
 
         session.commit()
@@ -482,6 +504,17 @@ def record_auto_sent_reply(
     requires_approval: bool,
     message_id: str,
 ) -> None:
+    import uuid
+
+    try:
+        owner_uuid = uuid.UUID(str(owner_id))
+    except (ValueError, TypeError):
+        owner_uuid = owner_id
+    try:
+        message_uuid = uuid.UUID(str(message_id))
+    except (ValueError, TypeError):
+        message_uuid = message_id
+
     session = SessionLocal()
     try:
         session.execute(

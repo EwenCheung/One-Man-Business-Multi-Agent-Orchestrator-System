@@ -199,6 +199,13 @@ def approval_rule_node(state: dict[str, Any]) -> dict[str, Any]:
     completed_tasks = list(state.get("completed_tasks", []))
     unverified_claims = list(state.get("unverified_claims", []))
 
+    sender_role = str(state.get("sender_role", "")).lower()
+    if sender_role == "owner":
+        return {
+            "approval_rule_flags": [],
+            "approval_rule_requires_approval": False,
+        }
+
     flags: list[str] = []
     flags.extend(_discount_negotiation_flags(reply_text, completed_tasks))
     flags.extend(_scan_patterns(reply_text, _CONCESSION_PATTERNS))

@@ -80,6 +80,16 @@ def get_tools_for_role(role: str) -> list:
     Raises ValueError if the role is not recognized.
     """
     role = role.lower()
+    
+    if role == "owner":
+        from backend.tools import retrieval_tools as rt
+        allowed = []
+        for name, fn in vars(rt).items():
+            if callable(fn) and not name.startswith("_"):
+                if name.startswith("get_") or name.startswith("semantic_search_") or name == "evaluate_discount_request":
+                    allowed.append(fn)
+        return allowed
+
     if role not in ROLE_TOOL_MAP:
         raise ValueError(f"Unknown role: {role!r}. Must be one of {list(ROLE_TOOL_MAP.keys())}")
     return ROLE_TOOL_MAP[role]

@@ -11,7 +11,7 @@ Endpoints:
   GET   /api/v1/dashboard/summary       → dashboard data (stub)
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 import uuid
 
 from backend.config import settings
@@ -23,6 +23,12 @@ from backend.services.approval_service import (
     reject_reply,
     record_auto_sent_reply,
     review_reply_record,
+)
+from backend.services.conversation_memory import (
+    delete_owner_chat_thread,
+    get_external_sender_thread_detail,
+    list_external_sender_threads,
+    list_owner_chat_threads,
 )
 
 api_router = APIRouter(tags=["orchestrator"])
@@ -76,6 +82,7 @@ async def receive_message(incoming: IncomingMessage):
     from backend.utils.langfuse import get_langfuse_handler
     from backend.db.engine import SessionLocal
     from backend.db.models import Message
+    from backend.services.conversation_memory import increment_sender_memory_counter
 
     # Run the pipeline with the incoming payload
     # Note: pipeline expects a PipelineState mapping
@@ -130,9 +137,18 @@ async def receive_message(incoming: IncomingMessage):
         session = SessionLocal()
         try:
             message_id = uuid.uuid4()
+            conversation_thread_uuid = None
+            conversation_thread_id = result.get("conversation_thread_id")
+            if conversation_thread_id:
+                try:
+                    conversation_thread_uuid = uuid.UUID(str(conversation_thread_id))
+                except (ValueError, TypeError):
+                    conversation_thread_uuid = None
+
             outbound_msg = Message(
                 id=message_id,
                 owner_id=result.get("owner_id", settings.OWNER_ID),
+                conversation_thread_id=conversation_thread_uuid,
                 sender_id=result.get("external_sender_id", incoming.sender_id),
                 sender_name=result.get("sender_name", incoming.sender_name or "Unknown"),
                 sender_role=result.get("sender_role", "Unknown"),
@@ -140,6 +156,19 @@ async def receive_message(incoming: IncomingMessage):
                 content=reply_text,
             )
             session.add(outbound_msg)
+
+            if str(result.get("sender_role", "")).lower() != "owner" and result.get(
+                "conversation_thread_id"
+            ):
+                _ = increment_sender_memory_counter(
+                    session,
+                    owner_id=result.get("owner_id", settings.OWNER_ID),
+                    conversation_thread_id=result.get("conversation_thread_id"),
+                    sender_external_id=result.get("external_sender_id", incoming.sender_id),
+                    sender_name=result.get("sender_name", incoming.sender_name or "Unknown"),
+                    sender_role=result.get("sender_role", "Unknown"),
+                )
+
             session.commit()
             record_auto_sent_reply(
                 owner_id=result.get("owner_id", settings.OWNER_ID),
@@ -213,45 +242,82 @@ async def get_reply_review_records(limit: int = 50):
         session.close()
 
 
-@api_router.get("/messages/{thread_id}")
-async def get_thread_history(thread_id: str):
-    """Retrieve message history for a thread."""
-    from sqlalchemy import or_
+@api_router.get("/messages/threads")
+async def get_external_sender_threads(
+    sender_roles: str | None = None,
+    limit: int = 100,
+):
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
     from backend.db.engine import SessionLocal
-    from backend.db.models import Message
 
     session = SessionLocal()
     try:
-        # thread_id is commonly a phone number / external sender id.
-        # Always filter by sender_id; only also filter by id when thread_id is a valid UUID to
-        # avoid a Postgres "invalid input syntax for type uuid" error.
-        filters = [Message.sender_id == thread_id]
-        try:
-            message_uuid = uuid.UUID(thread_id)
-        except (ValueError, TypeError):
-            message_uuid = None
-        if message_uuid is not None:
-            filters.append(Message.id == message_uuid)
-        predicate = or_(*filters) if len(filters) > 1 else filters[0]
-        msgs = (
-            session.query(Message)
-            .filter(predicate)
-            .order_by(Message.created_at.asc())
-            .all()
+        return list_external_sender_threads(
+            session,
+            owner_id=settings.OWNER_ID,
+            sender_roles=sender_roles,
+            limit=limit,
         )
-        return {
-            "thread_id": thread_id,
-            "messages": [
-                {
-                    "id": str(m.id),
-                    "direction": m.direction,
-                    "content": m.content,
-                    "created_at": str(m.created_at),
-                }
-                for m in msgs
-            ],
-            "status": "success",
-        }
+    finally:
+        session.close()
+
+
+@api_router.get("/messages/threads/{thread_id}")
+async def get_external_sender_thread(thread_id: str):
+    from backend.db.engine import SessionLocal
+
+    session = SessionLocal()
+    try:
+        result = get_external_sender_thread_detail(
+            session,
+            owner_id=settings.OWNER_ID,
+            thread_id=thread_id,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="External sender thread not found")
+        return result
+    finally:
+        session.close()
+
+
+@api_router.get("/messages/{thread_id}")
+async def get_thread_history(thread_id: str):
+    return await get_external_sender_thread(thread_id)
+
+
+@api_router.get("/owner-chat/threads")
+async def get_owner_chat_threads(limit: int = 100):
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
+    from backend.db.engine import SessionLocal
+
+    session = SessionLocal()
+    try:
+        return list_owner_chat_threads(session, owner_id=settings.OWNER_ID, limit=limit)
+    finally:
+        session.close()
+
+
+@api_router.delete("/owner-chat/threads/{thread_id}")
+async def delete_owner_chat_thread_endpoint(thread_id: str):
+    from backend.db.engine import SessionLocal
+
+    session = SessionLocal()
+    try:
+        result = delete_owner_chat_thread(
+            session,
+            owner_id=settings.OWNER_ID,
+            thread_id=thread_id,
+        )
+        if result is None:
+            session.rollback()
+            raise HTTPException(status_code=404, detail="Owner chat thread not found")
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
@@ -280,6 +346,7 @@ async def get_pending_approvals():
                     "proposal_type": a.proposal_type,
                     "risk_level": a.risk_level,
                     "proposal_id": str(a.proposal_id) if a.proposal_id else None,
+                    "held_reply_id": str(a.held_reply_id) if a.held_reply_id else None,
                     "created_at": str(a.created_at),
                 }
                 for a in approvals
@@ -296,7 +363,7 @@ async def get_dashboard_summary():
     from backend.db.engine import SessionLocal
     from backend.db.models import PendingApproval, Message, MemoryUpdateProposal
     from sqlalchemy import func
-    from datetime import datetime, date
+    from datetime import date
 
     session = SessionLocal()
     try:

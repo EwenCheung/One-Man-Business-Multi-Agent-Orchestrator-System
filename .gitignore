@@ -31,6 +31,7 @@ yarn-error.log
 .venv
 venv
 .env
+.env.local
 build/
 dist/
 *.egg-info/
@@ -43,3 +44,14 @@ uv.lock
 .vscode/ # VS Code project files
 .env # Environment variables file
 .DS_Store # macOS files
+
+# Next.js build output
+.next/
+
+# test output
+.playwright-mcp/
+.ruff_cache/
+.sisyphus/
+
+# Playwright test results
+frontend/test-results/
