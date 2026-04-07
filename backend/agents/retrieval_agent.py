@@ -5,15 +5,6 @@ Retrieves internal business data with role-based access control.
 Accepts a specific SubTask assigned by the Orchestrator, executes it,
 and returns the completed task to be aggregated.
 
-## TODO
-- [x] Connect to database (SQL / pgvector) via SQLAlchemy session
-- [x] Implement role-based retrieval filtering (sender_role determines what data is visible)
-- [x] Separate exact-match retrieval (SQL WHERE) from semantic retrieval (pgvector similarity)
-- [ ] Return provenance with each result (source table, record ID, match type)
-- [ ] Mark results as: verified_record | inferred_relevance | missing_data
-- [ ] Add try/except with structured failure return
-- [ ] Add timeout handling for DB queries
-
 Flow:
     1. Read sender_role from the SubTask
     2. Look up allowed tools via role_permissions
@@ -21,35 +12,6 @@ Flow:
     4. LLM selects and invokes the right tool(s) based on task description
     5. Tool function executes the scoped DB query
     6. Return results as completed task
-
-Input struct:
-{
-    "task_id": str,          # Unique ID for this task
-    "description": str,      # Natural language instruction, e.g. "Get this customer's recent orders"
-    "assignee": str,         # "retriever"
-    "status": str,           # "pending"
-    "result": str,           # Empty string initially
-    "sender_role": str,      # "customer" | "supplier" | "investor" | "partner"
-    "sender_id": str,        # e.g. "5" — used for row-level scoping
-}
-
-Output struct:
-{
-    "completed_tasks": [
-        {
-            # ── Original SubTask fields carried through ──
-            "task_id": "...",
-            "description": "...",
-            "assignee": "retriever",
-            "sender_role": "customer",
-            "sender_id": "5",
-
-            # ── Updated by the agent ──
-            "status": "completed" | "failed",
-            "result": "..."  # JSON string of query results, or error message
-        }
-    ]
-}
 """
 
 import json

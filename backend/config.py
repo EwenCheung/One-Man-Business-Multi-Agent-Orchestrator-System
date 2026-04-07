@@ -20,22 +20,17 @@ class Settings(BaseSettings):
     SUPABASE_DB_URL: str = ""
     OWNER_ID: str = "4c116430-f683-4a8a-91f7-546fa8bc5d76"
 
-    # ── LLM ───────────────────────────────────────────────────
-    AI_PROVIDER: str = "auto"  # auto | openai | gemini
+    # ── LLM (OpenAI) ────────────────────────────────────────────
     OPENAI_API_KEY: str = "dummy-key"
     OPENAI_MODEL: str = "gpt-4o-mini"
-    GOOGLE_API_KEY: str = "dummy-key"
-    GEMINI_MODEL: str = "gemini-2.0-flash"
     LLM_API_KEY: str = ""  # Legacy override key (optional)
     LLM_MODEL: str = ""  # Legacy override model (optional)
 
     # ── Retrieval Agent LLM  ──────────────────────────────────
-    RETRIEVAL_LLM_PROVIDER: str | None = None
     RETRIEVAL_LLM_API_KEY: str | None = None
     RETRIEVAL_LLM_MODEL: str | None = None
 
     # ── Policy Agent LLM ──────────────────────────────────────
-    POLICY_LLM_PROVIDER: str | None = None
     POLICY_LLM_API_KEY: str | None = None
     POLICY_LLM_MODEL: str | None = None
 
