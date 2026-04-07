@@ -27,7 +27,7 @@ Usage:
     uv run python tests/policy_agent/evaluate_embeddings.py --use-umap
 
 Prerequisites:
-    1. PostgreSQL + pgvector running
+    1. Connection to Supabase established
     2. Policies ingested with embeddings (uv run python backend/db/ingest_policies.py)
     3. Eval dependencies installed (uv sync --extra eval)
     4. Ground truth dataset present (tests/policy_agent/test_cases/ground_truth_dataset.json)  [only required with --with-query-alignment]
@@ -134,14 +134,14 @@ def _compute_query_alignment(df: pd.DataFrame, emb_matrix: np.ndarray) -> dict:
     )
     print("  Done.")
 
-    chunk_id_set = set(df["id"].tolist())
+    chunk_id_set = {str(cid) for cid in df["id"].tolist()}
     per_query = []
     for i, entry in enumerate(labeled):
-        rel_ids = [cid for cid in entry["relevant_chunk_ids"] if cid in chunk_id_set]
+        rel_ids = [str(cid) for cid in entry["relevant_chunk_ids"] if str(cid) in chunk_id_set]
         if not rel_ids:
             continue
 
-        rel_mask = df["id"].isin(set(rel_ids)).values
+        rel_mask = df["id"].astype(str).isin(set(rel_ids)).values
         q_emb = q_embs[i : i + 1]
         rel_sim = float(cosine_similarity(q_emb, emb_matrix[rel_mask]).mean())
         non_rel_sim = (
