@@ -1,363 +1,477 @@
 """
 Policy Document Generator
 
-Sends a structured prompt to an LLM for each policy document, receives the generated
-text, and writes it to a PDF in backend/policies/.
+Expands structured key-point outlines via LLM into realistic multi-paragraph
+policy text, then renders each document as a formatted PDF.
+
+Flow:
+    POLICY_CONTENT (key points) → LLM expansion → reportlab PDF → data/policies/
 
 Usage:
-    uv run python backend/db/generate_policies.py          # skip existing files
-    uv run python backend/db/generate_policies.py --force  # regenerate all
-
-The POLICY_SPECS list is the single source of truth for what gets generated.
-Editing a spec and re-running with --force reproduces a new version of that document.
+    uv run python backend/data/generate_policies.py          # skip existing files
+    uv run python backend/data/generate_policies.py --force  # regenerate all
 """
 
 import argparse
-import sys
+import json
+import re
 from pathlib import Path
+from typing import Any
 
-from fpdf import FPDF
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.config import settings
-from backend.data.policy_metadata import POLICY_SPECS as _BASE_SPECS
+from backend.data.policy_metadata import POLICY_SPECS
 
 # ─── Output directory ────────────────────────────────────────────────────────
 
 POLICIES_DIR = Path(__file__).parent / "policies"
 
-# ─── Few-shot examples ───────────────────────────────────────────────────────
-
-FEW_SHOT_EXAMPLES: list[dict] = [
-    {
-        "user": (
-            "Write an Order Cancellation Policy for a one-man e-commerce business. "
-            "The document must cover the following sections in order:\n\n"
-            "1. Overview — purpose and scope\n"
-            "2. Cancellation Window — orders may be cancelled within 2 hours of placement "
-            "provided they have not yet been dispatched\n"
-            "3. How to Cancel — the customer must contact support by email with their order number\n"
-            "4. Refunds — full refund to the original payment method within 5 business days\n"
-            "5. Exceptions — subscription orders and pre-order items cannot be cancelled\n\n"
-            "Write approximately 300 words. Use formal language."
-        ),
-        "assistant": (
-            "Order Cancellation Policy\n\n"
-            "Overview\n\n"
-            "This Order Cancellation Policy sets out the conditions under which customers may cancel "
-            "an order placed through the business's online store. It applies to all orders made by "
-            "individual consumers and business buyers alike. The business is committed to processing "
-            "cancellations promptly and fairly, in accordance with applicable consumer protection law.\n\n"
-            "Cancellation Window\n\n"
-            "Customers may request the cancellation of an order within two hours of the time at which "
-            "the order was placed, provided that the order has not yet been marked as dispatched. Once "
-            "an order has entered the fulfilment process and a dispatch confirmation has been issued, "
-            "it is no longer eligible for cancellation under this policy. In such cases, the customer "
-            "may instead initiate a return in accordance with the Returns and Refunds Policy.\n\n"
-            "How to Cancel\n\n"
-            "To request a cancellation, the customer must contact the business by email at the address "
-            "provided on the website, quoting their order number in the subject line. Cancellation "
-            "requests submitted through any other channel cannot be guaranteed to be processed within "
-            "the eligible window. The business will confirm whether the cancellation has been "
-            "successfully applied within one hour of receiving the request during business hours.\n\n"
-            "Refunds\n\n"
-            "Where a cancellation is approved, the business will issue a full refund to the original "
-            "payment method used at checkout. Refunds will be processed within five business days of "
-            "the cancellation confirmation. The business does not charge any administrative fee for "
-            "processing a cancellation within the permitted window.\n\n"
-            "Exceptions\n\n"
-            "The following order types are not eligible for cancellation under this policy: "
-            "subscription-based orders, which are governed by the applicable subscription terms; and "
-            "pre-order items, where cancellation rights are specified at the time of purchase. "
-            "The business reserves the right to decline a cancellation request that does not meet "
-            "the conditions set out in this policy."
-        ),
-    },
-    {
-        "user": (
-            "Write a Customer Communication Policy for a one-man e-commerce business. "
-            "The document must cover the following sections in order:\n\n"
-            "1. Overview — purpose and who it applies to\n"
-            "2. Response Times — email within 1 business day, social media within 4 hours during "
-            "business hours\n"
-            "3. Communication Channels — email is the official channel; social DMs are acknowledged "
-            "but not binding\n"
-            "4. Tone and Standards — professional, respectful, no informal language in written records\n"
-            "5. Escalation — unresolved issues after 3 exchanges are escalated to a formal complaint\n\n"
-            "Write approximately 300 words. Use formal language."
-        ),
-        "assistant": (
-            "Customer Communication Policy\n\n"
-            "Overview\n\n"
-            "This Customer Communication Policy defines the standards by which the business engages "
-            "with customers across all communication channels. It applies to all enquiries, complaints, "
-            "and general correspondence initiated by customers or by the business. The purpose of this "
-            "policy is to ensure that every interaction is handled consistently, professionally, and "
-            "within agreed timeframes.\n\n"
-            "Response Times\n\n"
-            "The business commits to responding to all customer emails within one business day of "
-            "receipt. For messages received after 17:00 or on weekends and public holidays, the "
-            "response window begins at 09:00 on the next business day. Messages received via social "
-            "media direct messaging will be acknowledged within four hours during business hours, "
-            "though resolution may require the customer to follow up by email.\n\n"
-            "Communication Channels\n\n"
-            "Email is the official and preferred channel for all customer communications. Responses "
-            "and commitments made by email constitute a written record and carry the full weight of "
-            "the business's obligations. Acknowledgements made via social media direct messaging are "
-            "informal in nature and do not create binding commitments unless subsequently confirmed "
-            "in writing by email.\n\n"
-            "Tone and Standards\n\n"
-            "All written communications on behalf of the business must be professional, respectful, "
-            "and free from informal or colloquial language. Staff and agents representing the business "
-            "are expected to maintain a courteous tone regardless of the nature of the customer's "
-            "enquiry or complaint.\n\n"
-            "Escalation\n\n"
-            "Where a customer issue has not been resolved after three exchanges within the same thread, "
-            "the matter will be escalated to a formal complaint and handled in accordance with the "
-            "business's Complaint Handling Procedure. The customer will be notified in writing when "
-            "their case has been escalated."
-        ),
-    },
-]
-
 # ─── Policy specifications ───────────────────────────────────────────────────
-# Each entry defines one PDF document.
-#
-# Fields:
-#   filename        — output PDF name (also used as the document title)
-#   category        — tag stored on every PolicyChunk from this document
-#   hard_constraint — whether rules here are mandatory (vs. guidelines)
-#   system_prompt   — sets the LLM's persona and formatting rules
-#   user_prompt     — the actual instruction for this specific document
+# Each entry defines one PDF: its title, and the sections with key points that
+# the LLM must expand into formal prose.
 
-# Prompt-only specs — keyed by filename, merged with metadata from policy_metadata.py
-_PROMPTS: dict[str, dict] = {
-    "returns_policy.pdf": {
-        "system_prompt": (
-            "You are a legal and operations writer for a small e-commerce business. "
-            "Write formal, precise policy documents that are enforceable and easy for "
-            "customers and staff to understand. Use clear section headings. "
-            "Do not use bullet points — write in full paragraphs."
-        ),
-        "user_prompt": (
-            "Write a Returns and Refunds Policy for a one-man e-commerce business that sells "
-            "physical products online. The document must cover the following sections in order:\n\n"
-            "1. Overview — purpose of the policy and who it applies to\n"
-            "2. Return Eligibility — the 30-day return window, condition requirements "
-            "(unused, original packaging), and which product categories are excluded "
-            "(digital goods, personalised items, opened consumables)\n"
-            "3. How to Initiate a Return — step-by-step process the customer must follow, "
-            "including contacting support and obtaining a return authorisation number\n"
-            "4. Refund Processing — timeline (within 7 business days of receiving the return), "
-            "method (original payment method only), and partial refund conditions\n"
-            "5. Shipping Costs — who bears return shipping costs under different scenarios "
-            "(customer fault vs. business fault)\n"
-            "6. Exchanges — whether exchanges are offered and how they work\n"
-            "7. Disputes — how unresolved disputes are escalated\n\n"
-            "Write approximately 500 words. Use formal language."
-        ),
-    },
+POLICY_CONTENT: dict[str, dict[str, Any]] = {
     "pricing_policy.pdf": {
-        "system_prompt": (
-            "You are a pricing and commercial policy writer for a small business. "
-            "Write authoritative policy documents that set clear rules for pricing, "
-            "discounts, and payment terms. Use clear section headings. Do not use bullet points — write in full paragraphs."
-        ),
-        "user_prompt": (
-            "Write a Pricing and Discount Policy for a one-man e-commerce business. "
-            "The document must cover the following sections in order:\n\n"
-            "1. Overview — purpose of the policy\n"
-            "2. Price Setting — how prices are determined (cost-plus margin), "
-            "that listed prices are final and inclusive of applicable taxes\n"
-            "3. Discount Authority — only the business owner may authorise discounts; "
-            "no staff or agents may offer discounts without written approval\n"
-            "4. Eligible Discount Scenarios — volume orders (10+ units get 5% off), "
-            "loyalty customers (repeat buyers after 5 orders get 8% off), "
-            "partner referrals (as defined in the partner agreement)\n"
-            "5. Prohibited Discounts — no discounts on already-reduced items, "
-            "no stacking of multiple discount types\n"
-            "6. Payment Terms — B2C orders must be paid in full before dispatch; "
-            "B2B invoices are net 30 days; late payment incurs 2% monthly interest\n"
-            "7. Price Changes — the business reserves the right to change prices without notice; "
-            "orders confirmed before a price change are honoured at the original price\n\n"
-            "Write approximately 500 words. Use formal language."
-        ),
+        "title": "Pricing and Discount Policy",
+        "sections": [
+            {
+                "heading": "Published Pricing",
+                "content": [
+                    "All products are sold using the published catalog price unless a documented exception applies.",
+                    "Catalog pricing may be discussed with customers, but unpublished pricing authority must not be implied.",
+                    "Cost price, gross margin, and negotiation room are confidential internal information.",
+                ],
+            },
+            {
+                "heading": "Standard Discount Bands",
+                "content": [
+                    "Orders of 10 to 49 units may receive up to a 10 percent volume discount.",
+                    "Orders of 50 to 99 units may receive up to a 15 percent volume discount when stock is available.",
+                    "Discounts cannot be stacked with loyalty, promotional, affiliate, or manual adjustments unless explicitly approved by the owner.",
+                ],
+            },
+            {
+                "heading": "Approval Rules",
+                "content": [
+                    "Any custom pricing, discount above the published band, or one-off commercial concession requires owner approval before it is promised.",
+                    "No offer may be made below cost price under any circumstance.",
+                    "Verbal pricing guidance is non-binding until written confirmation is issued.",
+                ],
+            },
+            {
+                "heading": "Payment Terms",
+                "content": [
+                    "Business-to-consumer orders must be paid in full before dispatch.",
+                    "Business-to-business invoices are issued on net 30 day terms from invoice date.",
+                    "Outstanding invoices accrue interest at 2 percent per month after the due date.",
+                    "The business reserves the right to suspend supply to accounts with overdue balances.",
+                ],
+            },
+            {
+                "heading": "Price Changes",
+                "content": [
+                    "The business reserves the right to revise catalog prices without prior notice.",
+                    "Orders confirmed in writing before a price change takes effect are honoured at the original price.",
+                    "Promotional pricing is time-limited and does not create an ongoing entitlement for any customer.",
+                ],
+            },
+        ],
+    },
+    "returns_policy.pdf": {
+        "title": "Returns and Refunds Policy",
+        "sections": [
+            {
+                "heading": "Standard Return Window",
+                "content": [
+                    "Unused products in original packaging may be returned within 30 days of delivery.",
+                    "All accessories, inserts, and bundled items must be included for a standard return to be accepted.",
+                    "Custom, special-order, clearance, and personalized items are not eligible for routine returns.",
+                ],
+            },
+            {
+                "heading": "How to Initiate a Return",
+                "content": [
+                    "Customers must contact support by email with their order number to request a return authorisation.",
+                    "A return authorisation number must be obtained before sending any item back.",
+                    "Items returned without a valid authorisation number may be refused or returned to the sender at their cost.",
+                    "The business will confirm or decline the return request within two business days of receipt.",
+                ],
+            },
+            {
+                "heading": "Refund and Shipping Rules",
+                "content": [
+                    "Refunds are processed within 5 to 7 business days after the returned item is inspected.",
+                    "Original shipping charges are non-refundable unless the order was fulfilled incorrectly by the business.",
+                    "Return shipping is paid by the customer unless the product arrived defective or the wrong item was shipped.",
+                    "Refunds are issued to the original payment method only.",
+                ],
+            },
+            {
+                "heading": "Exception Handling",
+                "content": [
+                    "A defective item reported within 90 days may qualify for replacement or full refund after evidence review.",
+                    "Any goodwill refund, fee waiver, replacement outside policy, or special exception requires owner approval.",
+                    "Customer-facing staff must not promise refunds outside documented conditions without owner approval.",
+                ],
+            },
+            {
+                "heading": "Exchanges",
+                "content": [
+                    "Exchanges are offered subject to stock availability and must be requested within the 30-day return window.",
+                    "The customer is responsible for return shipping costs on exchange requests unless the original item was faulty.",
+                    "Price differences on exchanges are charged or refunded to the original payment method.",
+                ],
+            },
+        ],
     },
     "data_privacy_policy.pdf": {
-        "system_prompt": (
-            "You are a data protection and privacy policy writer. "
-            "Write GDPR-aligned privacy policies for small businesses. "
-            "Be precise about data categories, legal bases, and individual rights. "
-            "Use clear section headings. Do not use bullet points — write in full paragraphs."
-        ),
-        "user_prompt": (
-            "Write a Data Privacy Policy for a one-man e-commerce business operating in the EU/UK. "
-            "The document must cover the following sections in order:\n\n"
-            "1. Overview — who the data controller is, contact details, and scope\n"
-            "2. Data Collected — personal data collected at checkout (name, email, address, phone), "
-            "order history, communication logs, and website usage analytics\n"
-            "3. Legal Basis — contract performance for order fulfilment; "
-            "legitimate interest for fraud prevention; consent for marketing\n"
-            "4. How Data Is Used — order processing, customer support, marketing (opt-in only), "
-            "legal compliance\n"
-            "5. Third-Party Sharing — data is shared only with: payment processors, "
-            "shipping carriers, and cloud infrastructure providers; "
-            "never sold to third parties\n"
-            "6. Retention — order data retained for 7 years (tax compliance); "
-            "marketing data deleted within 30 days of opt-out\n"
-            "7. Individual Rights — right to access, rectification, erasure, portability, "
-            "and objection; how to submit a request\n"
-            "8. Data Breaches — notification within 72 hours to the relevant supervisory authority\n\n"
-            "Write approximately 550 words. Use formal language."
-        ),
+        "title": "Data Privacy and Confidentiality Policy",
+        "sections": [
+            {
+                "heading": "Overview and Scope",
+                "content": [
+                    "This policy governs how the business collects, uses, stores, and protects personal data.",
+                    "It applies to all customer, supplier, partner, and investor data processed in the course of business operations.",
+                    "The business acts as data controller and is responsible for compliance with applicable data protection law.",
+                ],
+            },
+            {
+                "heading": "Customer Information",
+                "content": [
+                    "Customer names, contact details, order history, and support records are stored only for business operations and service fulfillment.",
+                    "Customer data is not sold or disclosed to third parties except where required for lawful processing or explicit consented service delivery.",
+                    "Customers may request correction or deletion of eligible personal data subject to legal retention requirements.",
+                ],
+            },
+            {
+                "heading": "Confidential Business Data",
+                "content": [
+                    "Cost price, margin structure, supplier terms, negotiation strategy, and owner decision thresholds are confidential.",
+                    "Confidential commercial information must not be disclosed to customers, partners, or suppliers unless expressly authorized by the owner.",
+                    "Financial disclosure to investors requires the applicable NDA or owner-approved disclosure path.",
+                ],
+            },
+            {
+                "heading": "Legal Basis for Processing",
+                "content": [
+                    "Order fulfilment data is processed on the basis of contractual necessity.",
+                    "Fraud prevention and business analytics rely on legitimate interest as the legal basis.",
+                    "Marketing communications are sent only with explicit opt-in consent, which may be withdrawn at any time.",
+                ],
+            },
+            {
+                "heading": "Retention",
+                "content": [
+                    "Transaction and accounting records are retained for at least 7 years in line with tax compliance obligations.",
+                    "Inactive customer profiles may be archived after 24 months of inactivity.",
+                    "Marketing data is deleted within 30 days of an opt-out request.",
+                    "Privacy requests and disclosure decisions must be logged for auditability.",
+                ],
+            },
+            {
+                "heading": "Individual Rights",
+                "content": [
+                    "Individuals have the right to access, correct, erase, and port their personal data.",
+                    "Data subject requests must be acknowledged within 5 business days and fulfilled within 30 days.",
+                    "In the event of a data breach affecting personal data, the relevant supervisory authority will be notified within 72 hours.",
+                ],
+            },
+        ],
     },
     "supplier_terms.pdf": {
-        "system_prompt": (
-            "You are a procurement and supplier relations policy writer for a small business. "
-            "Write clear supplier engagement policies that protect the business while "
-            "maintaining fair supplier relationships. Use clear section headings. Do not use bullet points — write in full paragraphs."
-        ),
-        "user_prompt": (
-            "Write a Supplier Engagement Policy for a one-man e-commerce business. "
-            "The document must cover the following sections in order:\n\n"
-            "1. Overview — purpose of the policy and who it applies to\n"
-            "2. Supplier Onboarding — required documents (business registration, bank details, "
-            "product certificates), approval timeline (up to 14 days), and trial order requirement\n"
-            "3. Pricing and Contracts — all pricing must be agreed in writing before any order; "
-            "contracts are reviewed annually; price increases require 30 days written notice\n"
-            "4. Payment Terms — standard payment is 30 days from invoice receipt; "
-            "early payment discount of 2% if paid within 10 days\n"
-            "5. Quality Standards — products must meet agreed specifications; "
-            "defect rate above 2% triggers a formal review; "
-            "the business reserves the right to reject and return non-conforming goods at supplier cost\n"
-            "6. Lead Times — suppliers must commit to lead times in writing; "
-            "failure to meet agreed lead times more than twice in a quarter triggers a review\n"
-            "7. Termination — either party may terminate with 60 days written notice; "
-            "immediate termination is permitted for material breach\n\n"
-            "Write approximately 500 words. Use formal language."
-        ),
+        "title": "Supplier Terms and Procurement Standards",
+        "sections": [
+            {
+                "heading": "Supplier Onboarding",
+                "content": [
+                    "New suppliers must submit business registration documents, bank details, and product certificates before being approved.",
+                    "Onboarding review takes up to 14 business days from receipt of complete documentation.",
+                    "A trial order is required before a supplier is added to the active supply chain.",
+                ],
+            },
+            {
+                "heading": "Commercial Terms",
+                "content": [
+                    "Standard supplier payment terms are net 30 from invoice date unless a written supplier agreement states otherwise.",
+                    "Minimum order quantities, lead times, and agreed supply prices must be documented in the active supplier agreement.",
+                    "Staff must not promise accelerated payment, exclusivity, or revised commercial terms without owner approval.",
+                    "An early payment discount of 2 percent applies if invoices are settled within 10 days of receipt.",
+                ],
+            },
+            {
+                "heading": "Quality and Delivery",
+                "content": [
+                    "Suppliers must meet the documented quality standards for the supplied product line.",
+                    "Defect rates above the agreed threshold trigger review and may pause new orders pending owner decision.",
+                    "Late delivery remedies may be discussed only in line with the written supplier agreement.",
+                    "Failure to meet agreed lead times more than twice in a calendar quarter triggers a formal performance review.",
+                ],
+            },
+            {
+                "heading": "Disclosure Restrictions",
+                "content": [
+                    "Internal resale pricing, margin targets, and downstream customer negotiations must not be disclosed to suppliers.",
+                    "Requests to change payment terms, volume commitments, or strategic sourcing allocations require owner approval.",
+                    "Supply interruptions with material business impact must be escalated immediately.",
+                ],
+            },
+            {
+                "heading": "Termination",
+                "content": [
+                    "Either party may terminate the supplier relationship with 60 days written notice.",
+                    "Immediate termination is permitted in the event of material breach, fraud, or wilful non-compliance.",
+                    "Outstanding purchase orders at the time of termination will be fulfilled or cancelled according to the terms of the active agreement.",
+                ],
+            },
+        ],
     },
     "partner_agreement_policy.pdf": {
-        "system_prompt": (
-            "You are a commercial partnerships and agreements policy writer for a small business. "
-            "Write clear partner relationship policies covering revenue sharing, IP, and conduct. "
-            "Use clear section headings. Do not use bullet points — write in full paragraphs."
-        ),
-        "user_prompt": (
-            "Write a Partner Agreement Policy for a one-man e-commerce business that works with "
-            "referral and reseller partners. "
-            "The document must cover the following sections in order:\n\n"
-            "1. Overview — what constitutes a partner relationship and the purpose of this policy\n"
-            "2. Partner Eligibility — partners must be registered businesses; "
-            "individuals are not eligible; onboarding requires a signed agreement\n"
-            "3. Revenue Share — referral partners receive 10% of the net order value for orders "
-            "they directly generate; reseller partners negotiate individual rates set in their agreement; "
-            "commissions are paid monthly in arrears\n"
-            "4. Exclusivity — no exclusivity is granted by default; "
-            "exclusive territory arrangements require a separate written addendum\n"
-            "5. Intellectual Property — the business retains all IP; "
-            "partners may use brand assets only within the bounds of the brand guidelines; "
-            "no white-labelling without explicit written consent\n"
-            "6. Reporting and Auditing — partners must provide monthly attribution reports; "
-            "the business reserves the right to audit partner sales records with 14 days notice\n"
-            "7. Termination — either party may terminate with 30 days written notice; "
-            "accrued commissions are paid out within 45 days of termination\n\n"
-            "Write approximately 500 words. Use formal language."
-        ),
+        "title": "Partner Agreement and Channel Rules",
+        "sections": [
+            {
+                "heading": "Partner Models",
+                "content": [
+                    "The business may operate affiliate, marketplace, referral, or revenue-share partner arrangements.",
+                    "Commission or revenue-share percentages must follow the signed partner agreement for that relationship.",
+                    "Partners may describe the business and products accurately but must not create unauthorized promises.",
+                    "Only registered businesses are eligible for formal partner status; individuals are not eligible.",
+                ],
+            },
+            {
+                "heading": "Revenue Share",
+                "content": [
+                    "Referral partners receive 10 percent of the net order value for orders they directly generate.",
+                    "Reseller partners negotiate individual rates documented in their signed agreement.",
+                    "Commissions are calculated monthly and paid in arrears within 30 days of the period end.",
+                    "No commission is payable on orders that are subsequently cancelled or fully refunded.",
+                ],
+            },
+            {
+                "heading": "Commercial Restrictions",
+                "content": [
+                    "Partners must not commit pricing, refund exceptions, delivery guarantees, or support promises beyond published terms.",
+                    "Any request to revise commission percentage, exclusivity, or channel priority requires owner approval.",
+                    "Partner-originated discount campaigns must be approved before launch.",
+                    "No exclusivity is granted by default; exclusive territory arrangements require a separate written addendum.",
+                ],
+            },
+            {
+                "heading": "Intellectual Property",
+                "content": [
+                    "The business retains all intellectual property in its brand, products, and content.",
+                    "Partners may use brand assets only within the bounds of the published brand guidelines.",
+                    "White-labelling or rebranding of products requires explicit written consent from the owner.",
+                ],
+            },
+            {
+                "heading": "Termination and Review",
+                "content": [
+                    "Either party may terminate the partner agreement with 30 days written notice.",
+                    "Accrued commissions at the time of termination are paid within 45 days of the termination date.",
+                    "Termination, suspension, or commercial renegotiation must be handled according to the written agreement and owner direction.",
+                    "Performance concerns that affect revenue or reputation should be escalated for owner review.",
+                ],
+            },
+        ],
+    },
+    "owner_benefit_rules.pdf": {
+        "title": "Owner Benefit and Approval Rules",
+        "sections": [
+            {
+                "heading": "Core Objective",
+                "content": [
+                    "Every outbound reply should protect owner benefit, preserve margin, and avoid preventable downside.",
+                    "A reply is risky if it reduces commercial leverage, creates owner loss, or adds liability without explicit owner approval.",
+                    "When uncertain, the system should prefer a safe non-committal response or hold for owner approval.",
+                ],
+            },
+            {
+                "heading": "Automatic Hold Conditions",
+                "content": [
+                    "Hold any reply that offers a custom discount, waiver, free add-on, refund exception, or commercial concession outside written rules.",
+                    "Hold any reply that reveals cost price, margin, internal negotiation room, supplier leverage, or owner decision thresholds.",
+                    "Hold any reply that makes a guarantee, legal admission, exclusivity promise, or non-standard timeline commitment not grounded in retrieved evidence.",
+                ],
+            },
+            {
+                "heading": "Evidence Requirements",
+                "content": [
+                    "Factual claims about pricing, return eligibility, contract terms, commissions, lead times, and privacy handling must be grounded in retrieved records or policy excerpts.",
+                    "If the system cannot ground a factual commercial claim, it must avoid stating it as fact.",
+                    "Approval rules override convenience: protecting owner interest is more important than producing an instant answer.",
+                ],
+            },
+            {
+                "heading": "Escalation Protocol",
+                "content": [
+                    "Any communication that cannot be resolved within documented policy rules must be held for owner review before dispatch.",
+                    "The owner must be notified of held replies within one business hour during operating hours.",
+                    "Replies held for longer than 4 business hours without owner action should trigger a follow-up notification.",
+                    "A record of every held reply and its outcome must be maintained for audit purposes.",
+                ],
+            },
+            {
+                "heading": "Prohibited Actions",
+                "content": [
+                    "No agent or automated system may commit to terms not documented in active policy without owner approval.",
+                    "Representations about future pricing, product availability, or business direction are prohibited without owner sign-off.",
+                    "Any communication that could constitute a legally binding offer must be reviewed by the owner before sending.",
+                ],
+            },
+        ],
     },
 }
 
-# Merge metadata (filename, category, hard_constraint) with generation prompts
-POLICY_SPECS: list[dict] = [
-    {**base, **_PROMPTS[base["filename"]]}
-    for base in _BASE_SPECS
-]
+# ─── LLM expansion ───────────────────────────────────────────────────────────
+
+_SYSTEM_PROMPT = (
+    "You are a legal and operations writer for a small e-commerce business. "
+    "Write formal, precise policy documents that are enforceable and clear. "
+    "Use the exact section headings provided. "
+    "Write in full paragraphs only — no bullet points, no numbered lists."
+)
 
 
-# ─── PDF writer ──────────────────────────────────────────────────────────────
-
-def _write_pdf(title: str, body: str, output_path: Path) -> None:
-    """Render a plain-text policy document as a formatted PDF."""
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=20)
-    pdf.add_page()
-
-    # Title
-    pdf.set_font("Helvetica", style="B", size=16)
-    pdf.multi_cell(0, 10, title, align="C")
-    pdf.ln(6)
-
-    # Body — detect section headings (lines that end with no period and are short)
-    pdf.set_font("Helvetica", size=11)
-    for line in body.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            pdf.ln(4)
-            continue
-        # Heuristic: heading if short, title-case or all-caps, no trailing period
-        is_heading = (
-            len(stripped) < 80
-            and not stripped.endswith(".")
-            and stripped[0].isupper()
-            and stripped == stripped.title() or stripped.isupper()
-        )
-        if is_heading:
-            pdf.ln(2)
-            pdf.set_font("Helvetica", style="B", size=11)
-            pdf.multi_cell(0, 7, stripped)
-            pdf.set_font("Helvetica", size=11)
-        else:
-            pdf.multi_cell(0, 6, stripped)
-
-    pdf.output(str(output_path))
+def _build_prompt(title: str, sections: list[dict]) -> str:
+    lines = [
+        f"Expand the following outline into a formal written policy document titled '{title}'.",
+        "For each section, write 2 to 3 full paragraphs (~150 words) of formal business prose.",
+        "Use the exact section heading before each section's text, prefixed with ##.",
+        "Do not use bullet points or numbered lists.\n",
+    ]
+    for section in sections:
+        lines.append(f"## {section['heading']}")
+        for point in section["content"]:
+            lines.append(f"- {point}")
+        lines.append("")
+    return "\n".join(lines)
 
 
-# ─── LLM call ────────────────────────────────────────────────────────────────
+def _expand_policy(
+    title: str, sections: list[dict], llm: ChatOpenAI
+) -> dict[str, str]:
+    """Return {heading: expanded_text} for every section."""
+    prompt = _build_prompt(title, sections)
+    response = llm.invoke([SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=prompt)])
+    text = response.content.strip()
 
-def _generate_text(spec: dict, llm: ChatOpenAI) -> str:
-    """Call the LLM with two few-shot examples followed by the spec's prompt."""
-    messages = [SystemMessage(content=spec["system_prompt"])]
+    result: dict[str, str] = {}
+    current_heading: str | None = None
+    current_lines: list[str] = []
 
-    for example in FEW_SHOT_EXAMPLES:
-        messages.append(HumanMessage(content=example["user"]))
-        messages.append(AIMessage(content=example["assistant"]))
+    for line in text.splitlines():
+        m = re.match(r"^#{1,3}\s+(.+)$", line.strip())
+        if m:
+            if current_heading is not None:
+                result[current_heading] = "\n".join(current_lines).strip()
+            current_heading = m.group(1).strip()
+            current_lines = []
+        elif current_heading is not None:
+            current_lines.append(line)
 
-    messages.append(HumanMessage(content=spec["user_prompt"]))
+    if current_heading is not None:
+        result[current_heading] = "\n".join(current_lines).strip()
 
-    response = llm.invoke(messages)
-    return response.content.strip()
+    return result
+
+
+# ─── PDF rendering ───────────────────────────────────────────────────────────
+
+
+def _write_pdf(
+    title: str,
+    sections: list[dict],
+    expanded: dict[str, str],
+    output_path: Path,
+) -> None:
+    doc = SimpleDocTemplate(str(output_path), pagesize=letter)
+    story = []
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Heading1"],
+        fontSize=18,
+        spaceAfter=30,
+        textColor=colors.darkblue,
+    )
+    heading_style = styles["Heading2"]
+    body_style = styles["BodyText"]
+
+    story.append(Paragraph(title, title_style))
+    story.append(Spacer(1, 0.2 * inch))
+
+    for section in sections:
+        heading = section["heading"]
+        story.append(Paragraph(heading, heading_style))
+        story.append(Spacer(1, 0.1 * inch))
+
+        text = expanded.get(heading, "")
+        for para in text.split("\n\n"):
+            para = para.strip()
+            if para:
+                story.append(Paragraph(para, body_style))
+                story.append(Spacer(1, 0.1 * inch))
+
+        story.append(Spacer(1, 0.3 * inch))
+
+    doc.build(story)
+
+
+# ─── Metadata sidecar ────────────────────────────────────────────────────────
+
+
+def _write_metadata() -> None:
+    metadata_path = POLICIES_DIR / "policies_metadata.json"
+    payload = {
+        spec["filename"]: {
+            "category": spec["category"],
+            "hard_constraint": spec["hard_constraint"],
+        }
+        for spec in POLICY_SPECS
+    }
+    with open(metadata_path, "w") as f:
+        json.dump(payload, f, indent=2)
+    print("  wrote policies_metadata.json")
 
 
 # ─── Main pipeline ───────────────────────────────────────────────────────────
+
 
 def generate(force: bool = False) -> None:
     POLICIES_DIR.mkdir(parents=True, exist_ok=True)
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         api_key=settings.OPENAI_API_KEY,
-        temperature=0.0,  # deterministic for reproducibility
+        temperature=0.3,
     )
 
-    for spec in POLICY_SPECS:
-        output_path = POLICIES_DIR / spec["filename"]
+    for filename, policy_data in POLICY_CONTENT.items():
+        output_path = POLICIES_DIR / filename
 
         if output_path.exists() and not force:
-            print(f"  skipping {spec['filename']} (already exists, use --force to regenerate)")
+            print(f"  skipping {filename} (already exists — use --force to regenerate)")
             continue
 
-        print(f"  generating {spec['filename']} ...")
-        text = _generate_text(spec, llm)
-        title = spec["filename"].replace("_", " ").replace(".pdf", "").title()
-        _write_pdf(title, text, output_path)
+        print(f"  generating {filename} ...")
+        expanded = _expand_policy(policy_data["title"], policy_data["sections"], llm)
+        _write_pdf(policy_data["title"], policy_data["sections"], expanded, output_path)
         print(f"  saved → {output_path}")
 
+    _write_metadata()
     print("Done.")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate policy PDF documents via LLM.")
+    parser = argparse.ArgumentParser(description="Generate policy PDFs via LLM expansion.")
     parser.add_argument(
         "--force",
         action="store_true",
