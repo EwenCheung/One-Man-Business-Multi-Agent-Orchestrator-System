@@ -16,7 +16,6 @@ Two-stage retrieval pipeline for the policy agent:
 """
 
 from langchain_openai import OpenAIEmbeddings
-from sentence_transformers import CrossEncoder
 from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
@@ -24,18 +23,21 @@ from backend.config import settings
 from backend.db.models import PolicyChunk
 
 
-# ─── Stage 2 model — loaded once at import time ───────────────────────────────
+# ─── Stage 2 model — lazy-loaded on first rerank call ────────────────────────
 
 
-def _load_reranker() -> CrossEncoder:
-    if settings.HF_TOKEN:
-        from huggingface_hub import login
-
-        login(token=settings.HF_TOKEN)
-    return CrossEncoder(settings.RERANKER_MODEL)
+_reranker = None
 
 
-_reranker = _load_reranker()
+def _get_reranker():
+    global _reranker
+    if _reranker is None:
+        from sentence_transformers import CrossEncoder
+        if settings.HF_TOKEN:
+            from huggingface_hub import login
+            login(token=settings.HF_TOKEN)
+        _reranker = CrossEncoder(settings.RERANKER_MODEL)
+    return _reranker
 
 
 _CATEGORY_HINTS = {
@@ -46,10 +48,17 @@ _CATEGORY_HINTS = {
     "partner": ["partner", "referral", "commission", "affiliate", "revenue share"],
     "owner_benefit": [
         "owner approval",
-        "approval",
+        "owner review",
+        "owner sign-off",
         "concession",
         "waiver",
         "below cost",
+        "negotiation",
+        "negotiation parameters",
+        "on behalf",
+        "binding offer",
+        "representation",
+        "disclose",
         "guarantee",
     ],
 }
@@ -261,7 +270,7 @@ def rerank_chunks(
         return chunks
 
     pairs = [(query, str(c["chunk_text"])) for c in chunks]
-    scores = _reranker.predict(pairs)
+    scores = _get_reranker().predict(pairs)
 
     ranked = sorted(range(len(chunks)), key=lambda i: scores[i], reverse=True)
     return [chunks[i] for i in ranked[:n]]

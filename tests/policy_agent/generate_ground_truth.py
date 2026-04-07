@@ -27,7 +27,7 @@ Usage:
     uv run python tests/policy_agent/generate_ground_truth.py --force   # overwrite
 
 Prerequisites:
-    1. PostgreSQL + pgvector running (docker compose up -d db)
+    1. Connection to Supabase established
     2. policy_chunks table populated (uv run python backend/db/ingest_policies.py)
     3. OPENAI_API_KEY set in .env
 """
@@ -55,11 +55,12 @@ OUTPUT_PATH = Path(__file__).parent / "test_cases" / "ground_truth_dataset.json"
 # Tweak counts here to change dataset size without touching logic.
 
 CATEGORY_TARGETS: dict[str, int] = {
-    "returns":      7,
-    "pricing":      9,
-    "data_privacy": 7,
-    "supplier":     7,
-    "partner":      7,
+    "returns":       7,
+    "pricing":       9,
+    "data_privacy":  7,
+    "supplier":      7,
+    "partner":       7,
+    "owner_benefit": 5,
 }
 
 OUT_OF_DOMAIN_COUNT = 5
@@ -69,7 +70,7 @@ OUT_OF_DOMAIN_COUNT = 5
 class _GeneratedQuery(BaseModel):
     query: str
     sender_role: str           # customer | supplier | partner | staff
-    relevant_chunk_ids: list[int]
+    relevant_chunk_ids: list[str]
     expected_verdict: str      # allowed | disallowed | requires_approval | not_covered
     expected_hard_constraint: bool
     query_type: str            # factual | edge_case | hard_constraint | requires_approval | role_variant
@@ -99,15 +100,27 @@ Your task is to generate realistic test queries grounded in the policy excerpts 
 For each query you generate:
 - Base it on content that actually appears in the excerpts — do not invent rules.
 - Reference the chunk IDs that contain the relevant text in relevant_chunk_ids.
-- Choose sender_role based on who would realistically ask this question.
-- Set expected_verdict to the answer the policy actually gives:
-    - "allowed"            — the policy explicitly permits the action
-    - "disallowed"         — the policy explicitly prohibits it
-    - "requires_approval"  — the policy requires owner sign-off before proceeding
-    - "not_covered"        — the policy documents shown do not address this at all
-- Set expected_hard_constraint=true only if the relevant chunk text states a
-  non-overridable rule (check the hard_constraint flag shown per chunk).
+- Choose sender_role from: customer, supplier, partner, staff.
+- Set expected_verdict using EXACTLY these two rules based on the chunk's hard_constraint flag:
+
+  RULE 1 — hard_constraint=true chunks:
+    The hard_constraint flag overrides everything. Ignore what the policy text says
+    about negotiation, approval, or flexibility.
+    Permitted verdicts: "allowed", "disallowed", "not_covered" ONLY.
+    "requires_approval" is FORBIDDEN for hard_constraint=true chunks.
+    If the text mentions approval but hard_constraint=true, use "disallowed".
+
+  RULE 2 — hard_constraint=false chunks:
+    Use your judgement based on the policy text:
+    - "allowed"           — the policy explicitly permits the action
+    - "disallowed"        — the text unconditionally forbids it
+    - "requires_approval" — the text says the action can proceed with owner sign-off
+    - "not_covered"       — the excerpts do not address this situation
+
+- Set expected_hard_constraint=true if ANY relevant chunk has hard_constraint=true,
+  otherwise false.
 - Vary query_type across: factual, edge_case, hard_constraint, requires_approval, role_variant.
+  query_type "requires_approval" is only valid when expected_hard_constraint=false.
 - Avoid duplicating very similar queries.
 
 Return valid JSON matching the provided schema exactly.
@@ -145,12 +158,25 @@ def _generate_for_category(
             f"Generate exactly {n} test queries for this policy category. "
             f"Include a spread of query_type values: factual, edge_case, "
             f"hard_constraint, requires_approval, role_variant. "
-            f"Each query must reference at least one chunk_id from the excerpts above."
+            f"Each query must reference at least one chunk_id from the excerpts above.\n\n"
+            f"STRICT RULE: hard_constraint=true on ANY relevant chunk means expected_verdict "
+            f"must be 'allowed', 'disallowed', or 'not_covered' — NEVER 'requires_approval'. "
+            f"The hard_constraint flag overrides the policy text entirely. "
+            f"'requires_approval' is only valid when ALL relevant chunks have hard_constraint=false "
+            f"AND the text explicitly says owner approval can unlock the action."
         )),
     ]
 
     result: _PolicyDocumentQueries = structured_llm.invoke(messages)
-    return result.queries[:n]  # cap in case LLM returns more
+    queries = result.queries[:n]  # cap in case LLM returns more
+
+    # Mechanically enforce the hard_constraint rule regardless of LLM output:
+    # any entry where expected_hard_constraint=True must NOT have requires_approval.
+    for q in queries:
+        if q.expected_hard_constraint and q.expected_verdict == "requires_approval":
+            q.expected_verdict = "disallowed"
+
+    return queries
 
 
 # ─── Out-of-domain query generation ──────────────────────────────────────────
@@ -194,20 +220,20 @@ _MANUAL_CASES = [
         "sender_role": "customer",
         "relevant_chunk_ids": None,
         "expected_verdict": "allowed",
-        "expected_hard_constraint": True,
+        "expected_hard_constraint": False,
         "category": "returns",
         "query_type": "factual",
-        "notes": "Direct return window + condition question; answer is in policy.",
+        "notes": "Direct return window + condition question; answer is in policy. returns_policy.pdf is hard_constraint=false.",
     },
     {
         "query": "Can I apply both a volume discount and a loyalty discount on the same order?",
         "sender_role": "customer",
         "relevant_chunk_ids": None,
-        "expected_verdict": "disallowed",
-        "expected_hard_constraint": True,
+        "expected_verdict": "requires_approval",
+        "expected_hard_constraint": False,
         "category": "pricing",
-        "query_type": "hard_constraint",
-        "notes": "Discount stacking is explicitly prohibited.",
+        "query_type": "requires_approval",
+        "notes": "Pricing policy is hard_constraint=false — discount stacking requires explicit owner approval.",
     },
     {
         "query": "What personal data do you collect and store about me as a customer?",
@@ -227,7 +253,7 @@ _MANUAL_CASES = [
         "expected_hard_constraint": False,
         "category": "supplier",
         "query_type": "factual",
-        "notes": "Net 30 days payment terms.",
+        "notes": "Net 30 days payment terms. supplier_terms.pdf is hard_constraint=false.",
     },
     {
         "query": "What percentage commission do I receive for referrals and when is it paid?",
@@ -247,10 +273,10 @@ _MANUAL_CASES = [
         "sender_role": "customer",
         "relevant_chunk_ids": None,
         "expected_verdict": "disallowed",
-        "expected_hard_constraint": True,
+        "expected_hard_constraint": False,
         "category": "pricing",
         "query_type": "hard_constraint",
-        "notes": "Below-cost discount without approval violates hard constraint.",
+        "notes": "Below cost price is unconditionally prohibited by policy text. pricing_policy.pdf is hard_constraint=false.",
     },
     {
         "query": (
@@ -260,10 +286,10 @@ _MANUAL_CASES = [
         "sender_role": "customer",
         "relevant_chunk_ids": None,
         "expected_verdict": "requires_approval",
-        "expected_hard_constraint": True,
+        "expected_hard_constraint": False,
         "category": "pricing",
         "query_type": "requires_approval",
-        "notes": "20% exceeds standard tier — requires owner sign-off.",
+        "notes": "Pricing policy is hard_constraint=false — 20% exceeds standard band, requires owner sign-off.",
     },
     {
         "query": "What is the company's policy on providing employee gym memberships?",
@@ -283,7 +309,7 @@ _MANUAL_CASES = [
         "expected_hard_constraint": False,
         "category": "supplier",
         "query_type": "factual",
-        "notes": "Either party may terminate with 60 days notice; role=supplier variant.",
+        "notes": "Either party may terminate with 60 days notice. supplier_terms.pdf is hard_constraint=false.",
     },
 ]
 
@@ -384,7 +410,7 @@ def generate(force: bool = False) -> None:
             "model_used": "gpt-4o",
             "total_entries": len(entries_with_ids),
             "verdict_distribution": verdict_counts,
-            "categories": list(CATEGORY_TARGETS.keys()) + ["out_of_domain"],
+            "categories": list(CATEGORY_TARGETS.keys()) + ["out_of_domain"], 
             "notes": (
                 "Entries with relevant_chunk_ids=null are manual test cases where "
                 "only verdict accuracy is evaluated (no retrieval benchmarking)."
