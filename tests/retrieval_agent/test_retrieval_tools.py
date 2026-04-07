@@ -19,6 +19,7 @@ from backend.tools.retrieval_tools import (
     get_product_catalog,
     get_customer_orders,
     get_customer_profile,
+    evaluate_discount_request,
     get_supplier_profile,
     get_supplier_contracts,
     get_product_stock,
@@ -73,14 +74,15 @@ def sample_ids(session):
 
 
 class TestRolePermissions:
-    def test_customer_has_exactly_4_tools(self):
+    def test_customer_has_exactly_5_tools(self):
         tools = get_tools_for_role("customer")
-        assert len(tools) == 4
+        assert len(tools) == 5
         names = {fn.__name__ for fn in tools}
         assert names == {
             "get_product_catalog",
             "get_customer_orders",
             "get_customer_profile",
+            "evaluate_discount_request",
             "semantic_search_product_catalog",
         }
 
@@ -130,7 +132,7 @@ class TestRolePermissions:
 
     def test_role_is_case_insensitive(self):
         tools = get_tools_for_role("CUSTOMER")
-        assert len(tools) == 4
+        assert len(tools) == 5
 
     def test_customer_cannot_access_investor_tools(self):
         customer_names = {fn.__name__ for fn in get_tools_for_role("customer")}

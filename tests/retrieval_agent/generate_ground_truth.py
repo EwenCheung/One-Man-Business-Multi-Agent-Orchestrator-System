@@ -29,11 +29,14 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from backend.config import settings
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
+
+from backend.config import settings
+from backend.db.engine import SessionLocal
+from backend.db import models
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -45,8 +48,49 @@ class _Paraphrases(BaseModel):
     variants: list[str]   # exactly N natural-language task descriptions
 
 
+# ── Sender ID lookup ──────────────────────────────────────────────────────────
+
+
+def _lookup_sender_ids() -> dict[str, str]:
+    """Query the database for a real UUID per role.
+
+    Returns a dict like {"customer": "abc-...", "supplier": "def-...",
+    "partner": "ghi-...", "investor": "00000000-..."}.
+    Investor tools don't filter by sender_id, so a zero UUID is fine.
+    """
+    session = SessionLocal()
+    try:
+        c = session.query(models.Customer).first()
+        s = session.query(models.Supplier).first()
+        p = session.query(models.Partner).first()
+    finally:
+        session.close()
+
+    missing = []
+    if not c:
+        missing.append("Customer")
+    if not s:
+        missing.append("Supplier")
+    if not p:
+        missing.append("Partner")
+    if missing:
+        raise RuntimeError(
+            f"No seed data found for: {', '.join(missing)}. "
+            "Run the seed pipeline first (init_db → generate_seed_data → load_seed_data)."
+        )
+
+    return {
+        "customer": str(c.id),
+        "supplier": str(s.id),
+        "partner": str(p.id),
+        "investor": "00000000-0000-0000-0000-000000000000",
+    }
+
+
 # ── Scenario templates ────────────────────────────────────────────────────────
 # One entry per (role, tool) pair.
+#
+# sender_id is looked up from the database at generation time (see generate()).
 #
 # expected_tools:          LangChain tool name(s) the LLM should select.
 # expected_fields_present: field keys that must appear in the final result
@@ -59,16 +103,16 @@ _SCENARIOS: list[dict] = [
     # ── Customer ──────────────────────────────────────────────────────────────
 
     {
-        "role": "customer", "sender_id": "1",
+        "role": "customer",
         "task_type": "catalog",
         "expected_tools": ["get_product_catalog"],
-        "expected_fields_present": ["name", "selling_price", "stock_quantity", "category"],
+        "expected_fields_present": ["name", "selling_price", "stock_number", "category"],
         "expected_fields_absent": ["cost_price", "margin"],
         "is_boundary_test": False, "boundary_type": None,
         "seed_description": "Show me the available products and their prices.",
     },
     {
-        "role": "customer", "sender_id": "1",
+        "role": "customer",
         "task_type": "orders",
         "expected_tools": ["get_customer_orders"],
         "expected_fields_present": ["order_id", "product_name", "status", "total_price"],
@@ -77,16 +121,16 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Show me my recent orders and their current status.",
     },
     {
-        "role": "customer", "sender_id": "1",
+        "role": "customer",
         "task_type": "profile",
         "expected_tools": ["get_customer_profile"],
-        "expected_fields_present": ["name", "email", "phone", "address"],
+        "expected_fields_present": ["name", "email", "phone", "company"],
         "expected_fields_absent": ["cost_price"],
         "is_boundary_test": False, "boundary_type": None,
         "seed_description": "What profile information do you have on file for me?",
     },
     {
-        "role": "customer", "sender_id": "1",
+        "role": "customer",
         "task_type": "semantic",
         "expected_tools": ["semantic_search_product_catalog"],
         "expected_fields_present": ["name", "selling_price", "similarity_score"],
@@ -96,7 +140,7 @@ _SCENARIOS: list[dict] = [
     },
     # Customer boundary — requests investor-tier financial data
     {
-        "role": "customer", "sender_id": "1",
+        "role": "customer",
         "task_type": "cross_role_boundary",
         "expected_tools": ["get_product_catalog"],
         "expected_fields_present": ["name", "selling_price"],
@@ -109,16 +153,16 @@ _SCENARIOS: list[dict] = [
     # ── Supplier ──────────────────────────────────────────────────────────────
 
     {
-        "role": "supplier", "sender_id": "1",
+        "role": "supplier",
         "task_type": "profile",
         "expected_tools": ["get_supplier_profile"],
-        "expected_fields_present": ["name", "contact_person", "email"],
+        "expected_fields_present": ["name", "email", "category"],
         "expected_fields_absent": ["cost_price"],
         "is_boundary_test": False, "boundary_type": None,
         "seed_description": "What does my supplier profile look like?",
     },
     {
-        "role": "supplier", "sender_id": "1",
+        "role": "supplier",
         "task_type": "orders",
         "expected_tools": ["get_supplier_contracts"],
         "expected_fields_present": ["contract_id", "product_name", "supply_price", "is_active"],
@@ -127,16 +171,16 @@ _SCENARIOS: list[dict] = [
         "seed_description": "What are my current supply contracts and product details?",
     },
     {
-        "role": "supplier", "sender_id": "1",
+        "role": "supplier",
         "task_type": "catalog",
         "expected_tools": ["get_product_stock"],
-        "expected_fields_present": ["name", "stock_quantity"],
+        "expected_fields_present": ["name", "stock_number"],
         "expected_fields_absent": ["cost_price", "selling_price"],
         "is_boundary_test": False, "boundary_type": None,
         "seed_description": "What are the current stock levels for all products?",
     },
     {
-        "role": "supplier", "sender_id": "1",
+        "role": "supplier",
         "task_type": "semantic",
         "expected_tools": ["semantic_search_supplier_contracts"],
         "expected_fields_present": ["contract_id", "product_name", "supply_price", "similarity_score"],
@@ -146,10 +190,10 @@ _SCENARIOS: list[dict] = [
     },
     # Supplier boundary — requests ROI and margin data (investor only)
     {
-        "role": "supplier", "sender_id": "1",
+        "role": "supplier",
         "task_type": "cross_role_boundary",
         "expected_tools": ["get_product_stock"],
-        "expected_fields_present": ["name", "stock_quantity"],
+        "expected_fields_present": ["name", "stock_number"],
         "expected_fields_absent": ["cost_price", "selling_price", "roi_pct"],
         "is_boundary_test": True,
         "boundary_type": "investor_data_request_by_supplier",
@@ -159,7 +203,7 @@ _SCENARIOS: list[dict] = [
     # ── Investor ──────────────────────────────────────────────────────────────
 
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "financial",
         "expected_tools": ["get_full_product_table"],
         "expected_fields_present": ["name", "selling_price", "cost_price", "margin"],
@@ -168,7 +212,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Show me the complete product table including cost prices and margins.",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "orders",
         "expected_tools": ["get_all_orders"],
         "expected_fields_present": ["order_id", "customer_name", "product_name", "total_price"],
@@ -177,7 +221,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Give me all orders across all customers.",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "aggregate",
         "expected_tools": ["get_customer_count"],
         "expected_fields_present": ["total_customers"],
@@ -186,7 +230,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "How many customers does the business currently have?",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "financial",
         "expected_tools": ["get_supply_overview"],
         "expected_fields_present": ["supplier_name", "product_name", "supply_price", "selling_price"],
@@ -195,7 +239,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Give me a full overview of all supply contracts.",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "financial",
         "expected_tools": ["get_product_roi"],
         "expected_fields_present": ["name", "cost_price", "selling_price", "roi_pct", "total_sold"],
@@ -204,7 +248,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "What is the ROI breakdown per product?",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "aggregate",
         "expected_tools": ["get_sales_stats"],
         "expected_fields_present": ["total_orders", "total_revenue", "avg_order_value"],
@@ -213,7 +257,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Give me the aggregate sales statistics for the business.",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "semantic",
         "expected_tools": ["semantic_search_full_product_table"],
         "expected_fields_present": ["name", "cost_price", "margin", "similarity_score"],
@@ -222,7 +266,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Find products related to outdoor or fitness equipment and show their financials.",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "semantic",
         "expected_tools": ["semantic_search_supply_overview"],
         "expected_fields_present": ["supplier_name", "supply_price", "selling_price", "similarity_score"],
@@ -231,7 +275,7 @@ _SCENARIOS: list[dict] = [
         "seed_description": "Find supply contracts related to electronics suppliers.",
     },
     {
-        "role": "investor", "sender_id": "0",
+        "role": "investor",
         "task_type": "semantic",
         "expected_tools": ["semantic_search_all_partner_agreements"],
         "expected_fields_present": ["partner_name", "agreement_type", "revenue_share_pct", "similarity_score"],
@@ -243,16 +287,16 @@ _SCENARIOS: list[dict] = [
     # ── Partner ───────────────────────────────────────────────────────────────
 
     {
-        "role": "partner", "sender_id": "1",
+        "role": "partner",
         "task_type": "profile",
         "expected_tools": ["get_partner_profile"],
-        "expected_fields_present": ["name", "contact_person", "email"],
+        "expected_fields_present": ["name", "email", "partner_type"],
         "expected_fields_absent": ["cost_price"],
         "is_boundary_test": False, "boundary_type": None,
         "seed_description": "What is my partner profile information?",
     },
     {
-        "role": "partner", "sender_id": "1",
+        "role": "partner",
         "task_type": "orders",
         "expected_tools": ["get_partner_agreements"],
         "expected_fields_present": ["agreement_id", "agreement_type", "revenue_share_pct", "is_active"],
@@ -261,16 +305,16 @@ _SCENARIOS: list[dict] = [
         "seed_description": "What are my current partnership agreements and their terms?",
     },
     {
-        "role": "partner", "sender_id": "1",
+        "role": "partner",
         "task_type": "catalog",
         "expected_tools": ["get_partner_products"],
-        "expected_fields_present": ["product_name", "selling_price", "agreement_type"],
+        "expected_fields_present": ["product_name", "selling_price", "product_description"],
         "expected_fields_absent": ["cost_price"],
         "is_boundary_test": False, "boundary_type": None,
         "seed_description": "Which products are linked to my partnership?",
     },
     {
-        "role": "partner", "sender_id": "1",
+        "role": "partner",
         "task_type": "semantic",
         "expected_tools": ["semantic_search_partner_agreements"],
         "expected_fields_present": ["agreement_id", "agreement_type", "revenue_share_pct", "similarity_score"],
@@ -280,7 +324,7 @@ _SCENARIOS: list[dict] = [
     },
     # Partner boundary — requests cost price data (investor only)
     {
-        "role": "partner", "sender_id": "1",
+        "role": "partner",
         "task_type": "cross_role_boundary",
         "expected_tools": ["get_partner_products"],
         "expected_fields_present": ["product_name", "selling_price"],
@@ -323,6 +367,10 @@ def generate(force: bool = False) -> None:
         print("Use --force to regenerate.")
         sys.exit(0)
 
+    # Look up real UUIDs from the database
+    sender_ids = _lookup_sender_ids()
+    print(f"Sender IDs: {sender_ids}")
+
     llm = ChatOpenAI(
         model="gpt-4o",
         api_key=settings.OPENAI_API_KEY,
@@ -355,7 +403,7 @@ def generate(force: bool = False) -> None:
             all_entries.append({
                 "case_id": f"rt-{case_counter:03d}",
                 "role": scenario["role"],
-                "sender_id": scenario["sender_id"],
+                "sender_id": sender_ids[role],
                 "task_description": desc,
                 "task_type": scenario["task_type"],
                 "expected_tools": scenario["expected_tools"],
