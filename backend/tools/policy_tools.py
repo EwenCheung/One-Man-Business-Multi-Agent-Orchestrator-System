@@ -16,7 +16,6 @@ Two-stage retrieval pipeline for the policy agent:
 """
 
 from langchain_openai import OpenAIEmbeddings
-from sentence_transformers import CrossEncoder
 from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
@@ -24,18 +23,15 @@ from backend.config import settings
 from backend.db.models import PolicyChunk
 
 
-# ─── Stage 2 model — loaded once at import time ───────────────────────────────
+# ─── Stage 2 model — loaded once at import time ──────────────────────────────
 
+from sentence_transformers import CrossEncoder
 
-def _load_reranker() -> CrossEncoder:
-    if settings.HF_TOKEN:
-        from huggingface_hub import login
+if settings.HF_TOKEN:
+    from huggingface_hub import login
+    login(token=settings.HF_TOKEN)
 
-        login(token=settings.HF_TOKEN)
-    return CrossEncoder(settings.RERANKER_MODEL)
-
-
-_reranker = _load_reranker()
+_reranker = CrossEncoder(settings.RERANKER_MODEL)
 
 
 _CATEGORY_HINTS = {
@@ -46,10 +42,17 @@ _CATEGORY_HINTS = {
     "partner": ["partner", "referral", "commission", "affiliate", "revenue share"],
     "owner_benefit": [
         "owner approval",
-        "approval",
+        "owner review",
+        "owner sign-off",
         "concession",
         "waiver",
         "below cost",
+        "negotiation",
+        "negotiation parameters",
+        "on behalf",
+        "binding offer",
+        "representation",
+        "disclose",
         "guarantee",
     ],
 }

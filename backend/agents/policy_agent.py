@@ -42,10 +42,13 @@ class PolicyDecision(BaseModel):
 
     verdict: str = Field(
         description=(
-            "One of: 'allowed' — the action is permitted by policy; "
-            "'disallowed' — the action violates a hard constraint (cite the rule); "
-            "'requires_approval' — the action needs owner sign-off before proceeding; "
-            "'not_covered' — no existing policy addresses this situation."
+            "One of: 'allowed', 'disallowed', 'requires_approval', 'not_covered'. "
+            "Determine this from the policy text. "
+            "'cannot X unless owner approval' → requires_approval. "
+            "'permitted within guidelines' → allowed. "
+            "Then: if verdict is 'requires_approval' AND the excerpt it is based on has "
+            "hard_constraint=True, change to 'disallowed'. Only check the primary excerpt — "
+            "not incidental excerpts from other categories."
         )
     )
     explanation: str = Field(
@@ -63,15 +66,17 @@ class PolicyDecision(BaseModel):
     )
     hard_constraint: bool = Field(
         description=(
-            "True if any matching rule is marked as a hard constraint that cannot "
-            "be overridden even with approval."
+            "True if the excerpt your verdict is based on has hard_constraint=True. "
+            "Copy from the metadata of the primary answering excerpt — do not derive from the verdict. "
+            "An 'allowed' verdict can have hard_constraint=True."
         )
     )
     confidence: Literal["high", "medium", "low"] = Field(
         description=(
-            "'high' — one or more excerpts directly address the question; "
-            "'medium' — excerpts are relevant but require interpretation; "
-            "'low' — no excerpts closely match the question."
+            "'high' — an excerpt DIRECTLY and UNAMBIGUOUSLY answers the exact question asked; "
+            "'medium' — excerpts are relevant but require interpretation or inference to apply; "
+            "'low' — no excerpt closely matches the question; verdict is inferred from indirect evidence. "
+            "Default to 'medium' when uncertain. Only use 'high' when the match is direct and explicit."
         )
     )
     caveat: Optional[str] = Field(
@@ -86,15 +91,48 @@ class PolicyDecision(BaseModel):
 # ─── Prompt ───────────────────────────────────────────────────────────────────
 
 _EVALUATION_TEMPLATE = """\
-You are a Policy Evaluator for a small business. Your job is to determine whether
-a described action or request is permitted, disallowed, or requires approval,
+You are a Policy Evaluator for a small business. Your job is to classify whether
+a described action or request is permitted, prohibited, or requires approval,
 based solely on the policy excerpts provided below.
+
+Each excerpt is tagged with hard_constraint=True or hard_constraint=False. This flag
+has one specific effect on the verdict and separately determines the hard_constraint
+output field. Follow the three steps below in order.
+
+### Step 1 — Read the policy text and determine the initial verdict
+Based on what the policy text says, classify the action as one of:
+- 'allowed'           — the policy explicitly permits the action
+- 'disallowed'        — the policy explicitly prohibits the action with no escape path
+- 'requires_approval' — the policy says the action can proceed with owner sign-off
+- 'not_covered'       — no excerpt addresses the question at all
+
+Reading rules for ambiguous text:
+- "X cannot be done unless owner approval" → requires_approval (the approval path exists)
+- "X is not permitted by default; requires a separate agreement/addendum" → requires_approval
+- "X is permitted within guidelines" → allowed, even if unauthorized X is also mentioned as prohibited
+- "X is prohibited under any circumstances / at all times" → disallowed
+
+### Step 2 — Apply the hard_constraint override (only affects requires_approval)
+If your Step 1 verdict is 'requires_approval', check the excerpt your verdict is
+BASED ON (the one cited in supporting_rules). If THAT excerpt has hard_constraint=True,
+change the verdict to 'disallowed'.
+Do NOT trigger this override based on an incidental excerpt from a different policy
+category that was not the basis for your verdict decision.
+
+### Step 3 — Set the hard_constraint output field (independent of the verdict)
+Set hard_constraint=True if the excerpt your verdict is based on has hard_constraint=True.
+Do NOT derive this from your verdict — an 'allowed' verdict can have hard_constraint=True.
+
+### Confidence calibration
+- 'high'   — an excerpt DIRECTLY and UNAMBIGUOUSLY answers the exact question.
+- 'medium' — excerpts are relevant but require interpretation or inference to apply.
+- 'low'    — no excerpt closely matches; verdict is inferred from indirect evidence.
+When uncertain between 'high' and 'medium', choose 'medium'.
 
 ### Rules
 - Base your verdict ONLY on the excerpts. Do NOT invent policies.
-- Do NOT soften or reinterpret hard constraints.
 - If no excerpt addresses the question, return verdict = 'not_covered'.
-- The sender's role may affect which policies apply — consider it when evaluating.
+- The sender's role may affect which policies apply — consider it carefully.
 
 ### Policy Excerpts
 {policy_excerpts}
@@ -180,9 +218,8 @@ def _evaluate(
 
     if chunks:
         excerpts = "\n\n---\n\n".join(
-            f"[{i + 1}] (source: {c['source_file']}, page {c['page_number']},"
-            f" section: {c.get('subheading') or 'N/A'},"
-            f" retrieval_mode={c.get('retrieval_mode', 'semantic')},"
+            f"[{i + 1}] (source: {c['source_file']}, category: {c['category']},"
+            f" page {c['page_number']}, section: {c.get('subheading') or 'N/A'},"
             f" hard_constraint={c['hard_constraint']})\n{c['chunk_text']}"
             for i, c in enumerate(chunks)
         )

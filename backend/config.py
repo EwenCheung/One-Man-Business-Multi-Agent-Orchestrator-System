@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # 1536 dims — matches Vector(1536)
     POLICY_CHUNK_SIZE: int = 2000  # characters per chunk (~500 tokens)
     POLICY_CHUNK_OVERLAP: int = 200  # overlap between consecutive chunks
-    POLICY_TOP_K: int = 5  # chunks retrieved from pgvector before reranking
-    POLICY_TOP_N: int = 3  # chunks kept after reranking
+    POLICY_TOP_K: int = 10  # chunks retrieved from pgvector before reranking
+    POLICY_TOP_N: int = 5  # chunks kept after reranking
     RERANKER_MODEL: str = "mixedbread-ai/mxbai-rerank-base-v1"
     HF_TOKEN: str = ""  # optional — avoids HuggingFace Hub rate limits
 

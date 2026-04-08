@@ -21,7 +21,7 @@ Coverage:
     9. Role context  — same question, different sender roles
 
 Usage:
-    uv run python tests/test_policy_agent.py
+    uv run python tests/policy_agent/test_policy_agent.py
 """
 
 from backend.agents.policy_agent import policy_agent

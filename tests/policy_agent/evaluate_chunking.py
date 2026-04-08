@@ -20,7 +20,7 @@ Usage:
     uv run python tests/policy_agent/evaluate_chunking.py --with-embeddings
 
 Prerequisites:
-    1. PostgreSQL + pgvector running
+    1. Connection to Supabase established
     2. Policies ingested (uv run python backend/db/ingest_policies.py)
     3. Eval dependencies installed (uv sync --extra eval)
     4. Ground truth dataset present (tests/policy_agent/test_cases/ground_truth_dataset.json)  [for coverage completeness metric]
@@ -231,10 +231,10 @@ def evaluate_chunking(with_embeddings: bool = False) -> dict:
     else:
         with open(GT_PATH) as f:
             gt = json.load(f)
-        chunk_ids_in_db: set[int] = set(df["id"].tolist())
+        chunk_ids_in_db: set[str] = {str(cid) for cid in df["id"].tolist()}
         labeled = [e for e in gt["entries"] if e.get("relevant_chunk_ids")]
         covered = sum(
-            1 for e in labeled if any(cid in chunk_ids_in_db for cid in e["relevant_chunk_ids"])
+            1 for e in labeled if any(str(cid) in chunk_ids_in_db for cid in e["relevant_chunk_ids"])
         )
         coverage = {
             "gt_entries_with_chunk_ids": len(labeled),
