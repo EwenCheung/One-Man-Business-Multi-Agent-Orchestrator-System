@@ -23,21 +23,15 @@ from backend.config import settings
 from backend.db.models import PolicyChunk
 
 
-# ─── Stage 2 model — lazy-loaded on first rerank call ────────────────────────
+# ─── Stage 2 model — loaded once at import time ──────────────────────────────
 
+from sentence_transformers import CrossEncoder
 
-_reranker = None
+if settings.HF_TOKEN:
+    from huggingface_hub import login
+    login(token=settings.HF_TOKEN)
 
-
-def _get_reranker():
-    global _reranker
-    if _reranker is None:
-        from sentence_transformers import CrossEncoder
-        if settings.HF_TOKEN:
-            from huggingface_hub import login
-            login(token=settings.HF_TOKEN)
-        _reranker = CrossEncoder(settings.RERANKER_MODEL)
-    return _reranker
+_reranker = CrossEncoder(settings.RERANKER_MODEL)
 
 
 _CATEGORY_HINTS = {
@@ -270,7 +264,7 @@ def rerank_chunks(
         return chunks
 
     pairs = [(query, str(c["chunk_text"])) for c in chunks]
-    scores = _get_reranker().predict(pairs)
+    scores = _reranker.predict(pairs)
 
     ranked = sorted(range(len(chunks)), key=lambda i: scores[i], reverse=True)
     return [chunks[i] for i in ranked[:n]]
