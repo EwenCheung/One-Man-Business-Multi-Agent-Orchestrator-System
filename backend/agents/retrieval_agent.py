@@ -5,15 +5,6 @@ Retrieves internal business data with role-based access control.
 Accepts a specific SubTask assigned by the Orchestrator, executes it,
 and returns the completed task to be aggregated.
 
-## TODO
-- [x] Connect to database (SQL / pgvector) via SQLAlchemy session
-- [x] Implement role-based retrieval filtering (sender_role determines what data is visible)
-- [x] Separate exact-match retrieval (SQL WHERE) from semantic retrieval (pgvector similarity)
-- [ ] Return provenance with each result (source table, record ID, match type)
-- [ ] Mark results as: verified_record | inferred_relevance | missing_data
-- [ ] Add try/except with structured failure return
-- [ ] Add timeout handling for DB queries
-
 Flow:
     1. Read sender_role from the SubTask
     2. Look up allowed tools via role_permissions
@@ -21,35 +12,6 @@ Flow:
     4. LLM selects and invokes the right tool(s) based on task description
     5. Tool function executes the scoped DB query
     6. Return results as completed task
-
-Input struct:
-{
-    "task_id": str,          # Unique ID for this task
-    "description": str,      # Natural language instruction, e.g. "Get this customer's recent orders"
-    "assignee": str,         # "retriever"
-    "status": str,           # "pending"
-    "result": str,           # Empty string initially
-    "sender_role": str,      # "customer" | "supplier" | "investor" | "partner"
-    "sender_id": str,        # e.g. "5" — used for row-level scoping
-}
-
-Output struct:
-{
-    "completed_tasks": [
-        {
-            # ── Original SubTask fields carried through ──
-            "task_id": "...",
-            "description": "...",
-            "assignee": "retriever",
-            "sender_role": "customer",
-            "sender_id": "5",
-
-            # ── Updated by the agent ──
-            "status": "completed" | "failed",
-            "result": "..."  # JSON string of query results, or error message
-        }
-    ]
-}
 """
 
 import json
@@ -405,6 +367,31 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
     return tools
 
 
+def _build_system_prompt(role: str) -> str:
+    """Return the retrieval agent system prompt for the given role."""
+    return (
+        "You are an Internal Data Retriever. Your ONLY job is to find and return "
+        "factual business data from the company database.\n\n"
+        "### Instructions\n"
+        "- Execute the retrieval task described in the user message.\n"
+        "- Return ONLY data that matches the query. Do NOT fabricate records.\n"
+        "- Always call the most appropriate available tool and return its results.\n"
+        "- Never refuse a task or explain what data you cannot provide — the tools enforce access boundaries automatically.\n"
+        "- Always call the most relevant available tool, even if it does not cover all requested fields. Return what the tool provides.\n"
+        "- Only return an empty response if absolutely no tool is even partially relevant to the request.\n"
+        "- IMPORTANT: Do NOT mention or reference field names like 'cost_price', 'margin', 'roi_pct' when explaining limitations.\n\n"
+        "### Role Access Rules\n"
+        "- Customers / Suppliers: NO access to internal margins, cost prices, or supplier source data\n"
+        "- Investors: Access subject to NDA tier — full financials and supply overview permitted\n"
+        "- Owner: Full access to all data\n\n"
+        "### Internal Negotiation Rule\n"
+        "- Some tools may return INTERNAL-ONLY pricing guidance for the business agent to negotiate safely.\n"
+        "- Never expose raw cost price or internal margin to the customer in your final result text.\n"
+        f"### Sender Role\n{role}\n"
+        "The available tools for this role are the only data you can access. Use them to fulfill the request."
+    )
+
+
 def _get_llm():
     """
     Create the LLM instance for the retrieval agent.
@@ -454,25 +441,9 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
     llm_with_tools = llm.bind_tools(tools)
 
     messages = [
-        SystemMessage(
-            content=(
-                "You are an Internal Data Retriever. Your ONLY job is to find and return "
-                "factual business data from the company database.\n\n"
-                "### Instructions\n"
-                "- Execute the retrieval task described in the user message.\n"
-                "- Return ONLY data that matches the query. Do NOT fabricate records.\n"
-                "- Call the most relevant tool(s) to fulfill the request.\n"
-                "- If no tool matches the request, state that the data is not available.\n\n"
-                "### Role Access Rules\n"
-                "- Customers / Suppliers: NO access to internal margins, cost prices, or supplier source data\n"
-                "- Investors: Access subject to NDA tier — full financials and supply overview permitted\n"
-                "- Owner: Full access to all data\n\n"
-                "### Internal Negotiation Rule\n"
-                "- Some tools may return INTERNAL-ONLY pricing guidance for the business agent to negotiate safely.\n"
-                "- Never expose raw cost price or internal margin to the customer in your final result text.\n"
-                f"### Sender Role\n{role}"
-            )
-        ),
+        
+        SystemMessage(content=_build_system_prompt(role)),
+
         HumanMessage(content=f"### Task\n{description}"),
     ]
 
