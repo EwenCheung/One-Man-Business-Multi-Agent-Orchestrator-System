@@ -45,7 +45,7 @@ import seaborn as sns
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from backend.agents.retrieval_agent import _build_tools_for_request, _get_llm
+from backend.agents.retrieval_agent import _build_system_prompt, _build_tools_for_request, _get_llm
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -113,20 +113,7 @@ def _evaluate_case(entry: dict, llm) -> dict:
     # Replicate the exact messages used in retrieval_agent() so the evaluation
     # tests the production prompt, not a synthetic one.
     messages = [
-        SystemMessage(content=(
-            "You are an Internal Data Retriever. Your ONLY job is to find and return "
-            "factual business data from the company database.\n\n"
-            "### Instructions\n"
-            "- Execute the retrieval task described in the user message.\n"
-            "- Return ONLY data that matches the query. Do NOT fabricate records.\n"
-            "- Call the most relevant tool(s) to fulfill the request.\n"
-            "- If no tool matches the request, state that the data is not available.\n\n"
-            "### Role Access Rules\n"
-            "- Customers / Suppliers: NO access to internal margins, cost prices, or supplier source data\n"
-            "- Investors: Access subject to NDA tier — full financials and supply overview permitted\n"
-            "- Owner: Full access to all data\n\n"
-            f"### Sender Role\n{role}"
-        )),
+        SystemMessage(content=_build_system_prompt(role)),
         HumanMessage(content=f"### Task\n{description}"),
     ]
 
@@ -147,7 +134,7 @@ def _evaluate_case(entry: dict, llm) -> dict:
         }
     latency_ms = _r((time.perf_counter() - t0) * 1000, 1)
 
-    predicted = [call["name"] for call in response.tool_calls]
+    predicted = [call["name"] for call in (response.tool_calls or [])]
     predicted_set = set(predicted)
 
     exact_match = predicted_set == expected
