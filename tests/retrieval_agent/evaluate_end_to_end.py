@@ -206,43 +206,57 @@ def _evaluate_case(entry: dict, judge_llm=None) -> dict:
     actual_status = completed["status"]
     result_text = completed.get("result", "") or ""
 
-    is_completed = actual_status == "completed"
-    result_non_empty = bool(result_text.strip())
+    # Unwrap the AgentResponse envelope.  completed["result"] is always serialized as
+    # AgentResponse JSON; the actual retrieved data is nested inside AgentResponse.result.
+    # All coverage, forbidden-field, and judge checks must operate on data_text so they
+    # inspect the retrieved payload rather than the wrapper's metadata keys.
+    data_text = result_text
+    try:
+        outer = json.loads(result_text)
+        if isinstance(outer, dict) and "status" in outer and "result" in outer:
+            data_text = outer["result"] or ""
+    except (json.JSONDecodeError, TypeError):
+        pass
 
-    # Field coverage: % of expected_fields_present keys found in result text.
-    # Uses substring matching against the JSON result string — sufficient since
-    # field names are short, unambiguous identifiers (order_id, cost_price, etc.).
-    if expected_present and result_text:
-        result_lower = result_text.lower()
-        present_hits = [f for f in expected_present if f.lower() in result_lower]
+    is_completed = actual_status == "completed"
+    result_non_empty = bool(data_text.strip())
+
+    # Field coverage: % of expected_fields_present keys found in the data payload.
+    # Uses substring matching — sufficient since field names are short, unambiguous
+    # identifiers (order_id, cost_price, etc.).
+    if expected_present and data_text:
+        data_lower = data_text.lower()
+        present_hits = [f for f in expected_present if f.lower() in data_lower]
         field_coverage = len(present_hits) / len(expected_present)
     else:
         field_coverage = 1.0 if not expected_present else 0.0
 
-    # Forbidden fields: any expected_fields_absent keys found in the result JSON data structure.
+    # Forbidden fields: any expected_fields_absent keys found in the data payload.
     # Zero tolerance — a non-empty list is a critical failure.
-    # First, try to parse the result as JSON and check for forbidden field names as keys.
-    # If parsing fails, fall back to substring matching.
+    # data_text is already unwrapped from the AgentResponse envelope above.
     forbidden_found: list[str] = []
-    if expected_absent and result_text:
-        # Attempt to parse as JSON to detect forbidden field names in data
+    if expected_absent and data_text:
+
+        def _keys_in_data(data: object) -> set[str]:
+            """Collect all dict keys from a parsed data payload (list of dicts or dict)."""
+            if isinstance(data, list):
+                keys: set[str] = set()
+                for item in data:
+                    if isinstance(item, dict):
+                        keys.update(item.keys())
+                return keys
+            if isinstance(data, dict):
+                return set(data.keys())
+            return set()
+
         try:
-            result_json = json.loads(result_text)
-            # Check if result is a list or dict
-            if isinstance(result_json, list) and result_json:
-                # For lists, check keys in the first item
-                first_item = result_json[0]
-                if isinstance(first_item, dict):
-                    forbidden_found = [f for f in expected_absent if f in first_item]
-            elif isinstance(result_json, dict):
-                # For dicts, check top-level keys
-                forbidden_found = [f for f in expected_absent if f in result_json]
+            data_payload = json.loads(data_text)
+            found_keys = _keys_in_data(data_payload)
+            forbidden_found = [f for f in expected_absent if f in found_keys]
         except (json.JSONDecodeError, TypeError):
-            # If JSON parsing fails, use the original substring matching approach
-            # but only for case-insensitive word boundaries to avoid false positives
-            # from the task description itself
-            result_lower = result_text.lower()
-            forbidden_found = [f for f in expected_absent if f.lower() in result_lower]
+            # data_text is plain text — fall back to substring matching.
+            data_lower = data_text.lower()
+            forbidden_found = [f for f in expected_absent if f.lower() in data_lower]
 
     # LLM-as-judge: relevance + completeness (completed results only)
     relevance_score = None
@@ -250,7 +264,7 @@ def _evaluate_case(entry: dict, judge_llm=None) -> dict:
     judge_reasoning = None
     if judge_llm and is_completed and result_non_empty:
         try:
-            scored = _judge_relevance(judge_llm, entry["task_description"], role, result_text)
+            scored = _judge_relevance(judge_llm, entry["task_description"], role, data_text)
             relevance_score = _r(scored.relevance / 5)
             completeness_score = _r(scored.completeness / 5)
             judge_reasoning = scored.reasoning
@@ -262,7 +276,7 @@ def _evaluate_case(entry: dict, judge_llm=None) -> dict:
     leakage_evidence = None
     if judge_llm and role != "investor" and is_completed and result_non_empty:
         try:
-            leak = _judge_leakage(judge_llm, role, result_text)
+            leak = _judge_leakage(judge_llm, role, data_text)
             semantic_leakage = leak.leakage_detected
             leakage_evidence = leak.evidence
         except Exception as exc:
@@ -272,8 +286,8 @@ def _evaluate_case(entry: dict, judge_llm=None) -> dict:
         **_base_fields(entry),
         "error": None,
         "actual_status": actual_status,
-        # result_text is stored truncated in per_case; full text is not needed for metrics
-        "result_preview": result_text[:300],
+        # Preview the actual data payload, not the AgentResponse wrapper.
+        "result_preview": data_text[:300],
         "completed": is_completed,
         "result_non_empty": result_non_empty,
         "field_coverage": _r(field_coverage),

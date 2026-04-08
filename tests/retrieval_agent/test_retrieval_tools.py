@@ -82,7 +82,6 @@ class TestRolePermissions:
             "get_product_catalog",
             "get_customer_orders",
             "get_customer_profile",
-            "evaluate_discount_request",
             "semantic_search_product_catalog",
             "evaluate_discount_request",
         }

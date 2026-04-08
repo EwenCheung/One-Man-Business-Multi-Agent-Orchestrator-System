@@ -3,13 +3,13 @@ Ground Truth Dataset Generator for Retrieval Agent Evaluation
 
 Generates labelled (role, sender_id, task_description, expected_tools,
 expected_fields_present, expected_fields_absent) entries used by Stage 1
-(tool selection) and Stage 、2 (end-to-end quality) evaluations.
+(tool selection) and Stage 2 (end-to-end quality) evaluations.
 
 Strategy:
   1. Scenario templates are hard-coded — one per (role, tool) pair with exact
      field sets derived directly from retrieval_tools.py.  SQL outputs are
      deterministic, so ground truth is not latent in text that an LLM must read.
-  2. GPT-4o generates 2 natural-language paraphrase variants of each seed
+  2. The configured LLM (via get_chat_llm) generates 2 natural-language paraphrase variants of each seed
      description to stress-test the LLM's tool selection across linguistic
      variety.  Each scenario therefore produces 3 entries (seed + 2 paraphrases).
   3. Boundary test entries use the seed description only (intent is precise).
@@ -30,12 +30,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from backend.config import settings
 from backend.db.engine import SessionLocal
+from backend.utils.llm_provider import get_chat_llm
 from backend.db import models
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -371,11 +370,7 @@ def generate(force: bool = False) -> None:
     sender_ids = _lookup_sender_ids()
     print(f"Sender IDs: {sender_ids}")
 
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        api_key=settings.OPENAI_API_KEY,
-        temperature=0.0,
-    )
+    llm = get_chat_llm(temperature=0.0)
 
     all_entries: list[dict] = []
     case_counter = 0
