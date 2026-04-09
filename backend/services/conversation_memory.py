@@ -11,9 +11,12 @@ from backend.db.models import (
     ConversationSenderMemory,
     ConversationThread,
     EntityMemory,
+    HeldReply,
     Message,
     OwnerMemoryRule,
+    PendingApproval,
     Profile,
+    ReplyReviewRecord,
 )
 
 
@@ -698,6 +701,68 @@ def list_owner_chat_threads(
     }
 
 
+def get_owner_chat_thread_detail(
+    session: Session,
+    *,
+    owner_id: str | uuid.UUID,
+    thread_id: str,
+) -> dict[str, object] | None:
+    owner_uuid = _coerce_uuid(owner_id)
+    thread_uuid = _coerce_uuid(thread_id)
+    if owner_uuid is None or thread_uuid is None:
+        return None
+
+    thread = (
+        session.query(ConversationThread)
+        .filter(
+            ConversationThread.id == thread_uuid,
+            ConversationThread.owner_id == owner_uuid,
+            ConversationThread.thread_type == "owner_chat",
+        )
+        .first()
+    )
+    if thread is None:
+        return None
+
+    messages = (
+        session.query(Message)
+        .filter(
+            Message.owner_id == owner_uuid,
+            Message.conversation_thread_id == thread_uuid,
+        )
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+
+    return {
+        "thread": {
+            "thread_id": str(thread.id),
+            "thread_type": thread.thread_type,
+            "title": thread.title,
+            "last_message_at": _to_iso(thread.last_message_at),
+            "sender": {
+                "external_id": thread.sender_external_id,
+                "name": thread.sender_name,
+                "role": thread.sender_role,
+                "channel": thread.sender_channel,
+            },
+        },
+        "messages": [
+            {
+                "id": str(message.id),
+                "direction": message.direction,
+                "content": message.content,
+                "sender_id": message.sender_id,
+                "sender_name": message.sender_name,
+                "sender_role": message.sender_role,
+                "created_at": _to_iso(message.created_at),
+            }
+            for message in messages
+        ],
+        "status": "success",
+    }
+
+
 def delete_owner_chat_thread(
     session: Session,
     *,
@@ -720,6 +785,64 @@ def delete_owner_chat_thread(
     )
     if thread is None:
         return None
+
+    message_ids = [
+        row[0]
+        for row in session.query(Message.id)
+        .filter(
+            Message.owner_id == owner_uuid,
+            Message.conversation_thread_id == thread_uuid,
+        )
+        .all()
+    ]
+
+    held_reply_ids = [
+        row[0]
+        for row in session.query(HeldReply.id)
+        .filter(
+            HeldReply.owner_id == owner_uuid,
+            HeldReply.thread_id == str(thread_uuid),
+        )
+        .all()
+    ]
+
+    if held_reply_ids:
+        _ = (
+            session.query(PendingApproval)
+            .filter(
+                PendingApproval.owner_id == owner_uuid,
+                PendingApproval.held_reply_id.in_(held_reply_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+
+    if message_ids:
+        _ = (
+            session.query(ReplyReviewRecord)
+            .filter(
+                ReplyReviewRecord.owner_id == owner_uuid,
+                ReplyReviewRecord.message_id.in_(message_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+
+    if held_reply_ids:
+        _ = (
+            session.query(ReplyReviewRecord)
+            .filter(
+                ReplyReviewRecord.owner_id == owner_uuid,
+                ReplyReviewRecord.held_reply_id.in_(held_reply_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+        _ = (
+            session.query(HeldReply)
+            .filter(
+                HeldReply.owner_id == owner_uuid,
+                HeldReply.id.in_(held_reply_ids),
+            )
+            .delete(synchronize_session=False)
+        )
 
     deleted_messages = (
         session.query(Message)

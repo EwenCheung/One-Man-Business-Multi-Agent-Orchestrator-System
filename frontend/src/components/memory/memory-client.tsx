@@ -5,6 +5,7 @@ import ConfirmActionDialog from "@/components/confirm-action-dialog";
 import { useMemoryMutations, useMemoryOverview } from "@/hooks/use-memory";
 import { updateOwnerProfile } from "@/lib/api-client";
 import type { DailyDigestItem, DailyDigestInput, MemoryOverviewPayload, OwnerMemoryRule } from "@/lib/types";
+import Markdown from "react-markdown";
 
 type ViewState =
   | { kind: "profile_memory" }
@@ -34,22 +35,26 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
   const [confirmSave, setConfirmSave] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSavingProfileMemory, setIsSavingProfileMemory] = useState(false);
+  const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
 
   function selectProfileMemory() {
     setSelectedView({ kind: "profile_memory" });
     setEditorValue(data.ownerProfile?.memory_context ?? "");
+    setViewMode("preview");
     setErrorMessage(null);
   }
 
   function selectRule(rule: OwnerMemoryRule) {
     setSelectedView({ kind: "rule", rule });
     setEditorValue(rule.content);
+    setViewMode("preview");
     setErrorMessage(null);
   }
 
   function selectDigest(digest: DailyDigestItem) {
     setSelectedView({ kind: "digest", digest });
     setEditorValue(digest.summary ?? "");
+    setViewMode("preview");
     setErrorMessage(null);
   }
 
@@ -147,6 +152,32 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
           <h2 className="mt-2 text-2xl font-semibold text-zinc-900">
             {selectedView?.kind === "profile_memory" ? "Long-term memory" : selectedView?.kind === "rule" ? "Owner Rule" : "Daily memory summary"}
           </h2>
+          {selectedView ? (
+            <div className="mt-4 flex gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 w-fit">
+              <button
+                type="button"
+                onClick={() => setViewMode("preview")}
+                className={`rounded-md px-3 py-1.5 text-xs transition ${
+                  viewMode === "preview"
+                    ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                    : "text-zinc-500 hover:text-zinc-700"
+                }`}
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("edit")}
+                className={`rounded-md px-3 py-1.5 text-xs transition ${
+                  viewMode === "edit"
+                    ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                    : "text-zinc-500 hover:text-zinc-700"
+                }`}
+              >
+                Edit
+              </button>
+            </div>
+          ) : null}
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
             {selectedView?.kind === "profile_memory" ? (
               <>
@@ -154,11 +185,23 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
                   <span className="rounded-full bg-white px-3 py-1">Owner Profile</span>
                   <span className="rounded-full bg-white px-3 py-1">Memory Context</span>
                 </div>
-                <textarea
-                  value={editorValue}
-                  onChange={(event) => setEditorValue(event.target.value)}
-                  className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
-                />
+                {viewMode === "edit" ? (
+                  <textarea
+                    value={editorValue}
+                    onChange={(event) => setEditorValue(event.target.value)}
+                    className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
+                  />
+                ) : (
+                  <div className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800">
+                    {editorValue.trim() ? (
+                      <div className="prose prose-sm prose-zinc max-w-none">
+                        <Markdown>{editorValue}</Markdown>
+                      </div>
+                    ) : (
+                      <p className="text-zinc-400 italic">No content yet.</p>
+                    )}
+                  </div>
+                )}
               </>
             ) : selectedView?.kind === "rule" ? (
               <>
@@ -166,11 +209,23 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
                   <span className="rounded-full bg-white px-3 py-1">{selectedView.rule.role}</span>
                   <span className="rounded-full bg-white px-3 py-1">{selectedView.rule.category}</span>
                 </div>
-                <textarea
-                  value={editorValue}
-                  onChange={(event) => setEditorValue(event.target.value)}
-                  className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
-                />
+                {viewMode === "edit" ? (
+                  <textarea
+                    value={editorValue}
+                    onChange={(event) => setEditorValue(event.target.value)}
+                    className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
+                  />
+                ) : (
+                  <div className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800">
+                    {editorValue.trim() ? (
+                      <div className="prose prose-sm prose-zinc max-w-none">
+                        <Markdown>{editorValue}</Markdown>
+                      </div>
+                    ) : (
+                      <p className="text-zinc-400 italic">No content yet.</p>
+                    )}
+                  </div>
+                )}
               </>
             ) : selectedView?.kind === "digest" ? (
               <>
@@ -178,11 +233,23 @@ export default function MemoryClient({ initialData }: { initialData: MemoryOverv
                   <span className="rounded-full bg-white px-3 py-1">{selectedView.digest.risk ?? "low"}</span>
                   <span className="rounded-full bg-white px-3 py-1">{selectedView.digest.created_at?.slice(0, 10) ?? "Daily summary"}</span>
                 </div>
-                <textarea
-                  value={editorValue}
-                  onChange={(event) => setEditorValue(event.target.value)}
-                  className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
-                />
+                {viewMode === "edit" ? (
+                  <textarea
+                    value={editorValue}
+                    onChange={(event) => setEditorValue(event.target.value)}
+                    className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800"
+                  />
+                ) : (
+                  <div className="mt-4 min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-sm leading-7 text-zinc-800">
+                    {editorValue.trim() ? (
+                      <div className="prose prose-sm prose-zinc max-w-none">
+                        <Markdown>{editorValue}</Markdown>
+                      </div>
+                    ) : (
+                      <p className="text-zinc-400 italic">No content yet.</p>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-sm text-zinc-500">Select a memory item to review.</p>

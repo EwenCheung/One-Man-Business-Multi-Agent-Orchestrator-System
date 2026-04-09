@@ -17,8 +17,12 @@ Set at least one provider credentials in `.env`:
 - `OPENAI_API_KEY` (for OpenAI)
 - `GOOGLE_API_KEY` (for Gemini)
 
-Database URL for local host usage:
-- `DATABASE_URL=postgresql+psycopg2://business_admin:business_pass@localhost:5432/business_db`
+Required environment values for the current setup:
+- `SUPABASE_DB_URL` — pooled Postgres connection string
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `BACKEND_PUBLIC_URL` — public HTTPS backend URL used for Telegram webhook registration
 
 ## Start The Project
 
@@ -32,25 +36,15 @@ Services:
 - Frontend: `http://localhost:3000`
 - PostgreSQL: `localhost:5432`
 
-Backend startup automatically runs:
-- `backend/db/init_db.py`
-- `backend/db/generate_seed_data.py` (generates CSVs in `backend/data/seed/`)
-- `backend/db/load_seed_data.py` (loads CSVs into database)
-- `backend/db/generate_policies.py` (generates policy PDFs in `backend/data/policies/`)
-- `backend/db/ingest_business_data.py` (loads policies and embeds vectors)
-
-Seed loading is idempotent (existing populated tables are skipped).
+Docker startup does **not** automatically reset or reseed the database.
 
 Useful commands:
 ```bash
 # Logs
 docker compose logs -f backend frontend db
 
-# Re-run seed manually in container
-docker compose exec backend uv run python backend/db/generate_seed_data.py
-docker compose exec backend uv run python backend/db/load_seed_data.py
-docker compose exec backend uv run python backend/db/generate_policies.py
-docker compose exec backend uv run python backend/db/ingest_business_data.py
+# Reset and reseed Supabase manually
+docker compose exec backend uv run python backend/db/reset_and_seed_supabase.py
 
 # Stop
 docker compose down
@@ -61,11 +55,6 @@ docker compose down
 Backend:
 ```bash
 uv sync
-uv run python backend/db/init_db.py
-uv run python backend/db/generate_seed_data.py
-uv run python backend/db/load_seed_data.py
-uv run python backend/db/generate_policies.py
-uv run python backend/db/ingest_business_data.py
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -75,6 +64,44 @@ cd frontend
 npm install
 npm run dev
 ```
+
+The frontend now reads environment variables from the shared repo-root `.env` via its npm scripts. Do not keep a separate `frontend/.env.local` for normal development.
+
+## Reset and Load Seed Data
+
+To fully wipe business data and load the current 2-owner seed set:
+
+```bash
+uv run python backend/db/reset_and_seed_supabase.py
+```
+
+This creates:
+
+- `owner1@gmail.com`, `customer1@gmail.com`, `supplier1@gmail.com`, `partner1@gmail.com`, `investor1@gmail.com`
+- `owner2@gmail.com`, `customer2@gmail.com`, `supplier2@gmail.com`, `partner2@gmail.com`, `investor2@gmail.com`
+
+Default password for seeded auth users:
+
+```text
+Abcd@1234
+```
+
+## Telegram Owner Setup
+
+Telegram is configured from the **Owner Dashboard → Profile → Telegram Integration** section.
+
+You provide there:
+
+- **Bot Token**
+- **Webhook Secret**
+
+The app uses `BACKEND_PUBLIC_URL` from env to construct the actual webhook URL automatically:
+
+```text
+${BACKEND_PUBLIC_URL}/api/v1/telegram/webhook
+```
+
+When you save the owner profile and both Telegram fields are present, the app automatically calls Telegram `setWebhook(...)` again.
 
 ## When You Change Code
 
@@ -98,4 +125,3 @@ Force clean rebuild (no cache):
 docker compose build --no-cache backend frontend
 docker compose up -d
 ```
-

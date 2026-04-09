@@ -11,8 +11,12 @@ Endpoints:
   GET   /api/v1/dashboard/summary       → dashboard data (stub)
 """
 
-from fastapi import APIRouter, HTTPException
+import asyncio
+import hmac
 import uuid
+import logging
+
+from fastapi import APIRouter, HTTPException, Request
 
 from backend.config import settings
 from backend.models import IncomingMessage, PipelineResult
@@ -27,11 +31,34 @@ from backend.services.approval_service import (
 from backend.services.conversation_memory import (
     delete_owner_chat_thread,
     get_external_sender_thread_detail,
+    get_owner_chat_thread_detail,
     list_external_sender_threads,
     list_owner_chat_threads,
 )
 
 api_router = APIRouter(tags=["orchestrator"])
+logger = logging.getLogger(__name__)
+
+
+def _is_internal_request(request: Request) -> bool:
+    configured_key = settings.INTERNAL_API_KEY.strip()
+    provided_key = request.headers.get("X-Internal-Api-Key", "")
+    if configured_key:
+        return bool(provided_key) and hmac.compare_digest(provided_key, configured_key)
+    return settings.APP_ENV.lower() == "development"
+
+
+def _require_internal_request(request: Request) -> None:
+    if not _is_internal_request(request):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _validated_owner_id(owner_id: str | None) -> str:
+    candidate = owner_id or settings.OWNER_ID
+    try:
+        return str(uuid.UUID(str(candidate)))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid owner_id") from exc
 
 
 # ─── Memory Approval ──────────────────────────────────────────────
@@ -75,7 +102,19 @@ def review_reply_record_endpoint(
 
 
 @api_router.post("/messages/incoming", response_model=PipelineResult)
-async def receive_message(incoming: IncomingMessage):
+async def receive_message(incoming: IncomingMessage, request: Request):
+    trusted_owner_id = settings.OWNER_ID
+    if incoming.owner_id is not None:
+        _require_internal_request(request)
+        trusted_owner_id = incoming.owner_id
+
+    return await process_incoming_message(incoming, trusted_owner_id=trusted_owner_id)
+
+
+async def process_incoming_message(
+    incoming: IncomingMessage,
+    trusted_owner_id: str | None = None,
+):
     """Accept an incoming message and run the full pipeline."""
     # Execute the LangGraph Pipeline
     from backend.graph.pipeline_graph import pipeline
@@ -90,10 +129,14 @@ async def receive_message(incoming: IncomingMessage):
         "raw_message": incoming.raw_message,
         "sender_id": incoming.sender_id,
         "external_sender_id": incoming.sender_id,
-        "owner_id": settings.OWNER_ID,
+        "owner_id": _validated_owner_id(trusted_owner_id),
         "trace_id": uuid.uuid4().hex,
         "sender_name": incoming.sender_name or "Unknown",
         "thread_id": incoming.thread_id or incoming.sender_id,
+        "telegram_user_id": incoming.telegram_user_id,
+        "telegram_username": incoming.telegram_username,
+        "telegram_chat_id": incoming.telegram_chat_id,
+        "telegram_contact_phone": incoming.telegram_contact_phone,
     }
 
     # Setup Langfuse callbacks if configured
@@ -109,7 +152,7 @@ async def receive_message(incoming: IncomingMessage):
                 "langfuse_session_id": initial_state["thread_id"],
                 "langfuse_tags": ["api", "langgraph", "orchestrator"],
                 "external_id": initial_state["trace_id"],
-                "owner_id": settings.OWNER_ID,
+                "owner_id": initial_state["owner_id"],
                 "sender_name": incoming.sender_name or "Unknown",
                 "endpoint": "/api/v1/messages/incoming",
             },
@@ -118,7 +161,7 @@ async def receive_message(incoming: IncomingMessage):
         else {}
     )
 
-    result = pipeline.invoke(initial_state, config=config)
+    result = await asyncio.to_thread(pipeline.invoke, initial_state, config=config)
 
     requires_approval = result.get("requires_approval", False)
     reply_text = result.get("reply_text", "No reply generated.")
@@ -132,7 +175,6 @@ async def receive_message(incoming: IncomingMessage):
         else reply_text
     )
 
-    # Only save to thread history if the message is actually delivered to the user
     if not requires_approval and reply_text and reply_text != "No reply generated.":
         session = SessionLocal()
         try:
@@ -170,6 +212,18 @@ async def receive_message(incoming: IncomingMessage):
                 )
 
             session.commit()
+
+            from backend.integrations.telegram_sender import send_telegram_reply
+
+            _ = asyncio.create_task(
+                asyncio.to_thread(
+                    send_telegram_reply,
+                    result.get("owner_id", settings.OWNER_ID),
+                    result.get("external_sender_id", incoming.sender_id),
+                    reply_text,
+                )
+            )
+
             record_auto_sent_reply(
                 owner_id=result.get("owner_id", settings.OWNER_ID),
                 trace_id=result.get("trace_id", initial_state["trace_id"]),
@@ -186,7 +240,7 @@ async def receive_message(incoming: IncomingMessage):
                 message_id=str(message_id),
             )
         except Exception as e:
-            print(f"Failed to save outbound message to history: {e}")
+            logger.error("Failed to save outbound message to history: %s", e, exc_info=True)
         finally:
             session.close()
 
@@ -287,27 +341,52 @@ async def get_thread_history(thread_id: str):
 
 
 @api_router.get("/owner-chat/threads")
-async def get_owner_chat_threads(limit: int = 100):
+async def get_owner_chat_threads(request: Request, limit: int = 100, owner_id: str | None = None):
+    _require_internal_request(request)
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
     from backend.db.engine import SessionLocal
 
     session = SessionLocal()
     try:
-        return list_owner_chat_threads(session, owner_id=settings.OWNER_ID, limit=limit)
+        return list_owner_chat_threads(session, owner_id=_validated_owner_id(owner_id), limit=limit)
+    finally:
+        session.close()
+
+
+@api_router.get("/owner-chat/threads/{thread_id}")
+async def get_owner_chat_thread(request: Request, thread_id: str, owner_id: str | None = None):
+    _require_internal_request(request)
+    from backend.db.engine import SessionLocal
+
+    session = SessionLocal()
+    try:
+        result = get_owner_chat_thread_detail(
+            session,
+            owner_id=_validated_owner_id(owner_id),
+            thread_id=thread_id,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Owner chat thread not found")
+        return result
     finally:
         session.close()
 
 
 @api_router.delete("/owner-chat/threads/{thread_id}")
-async def delete_owner_chat_thread_endpoint(thread_id: str):
+async def delete_owner_chat_thread_endpoint(
+    request: Request,
+    thread_id: str,
+    owner_id: str | None = None,
+):
+    _require_internal_request(request)
     from backend.db.engine import SessionLocal
 
     session = SessionLocal()
     try:
         result = delete_owner_chat_thread(
             session,
-            owner_id=settings.OWNER_ID,
+            owner_id=_validated_owner_id(owner_id),
             thread_id=thread_id,
         )
         if result is None:

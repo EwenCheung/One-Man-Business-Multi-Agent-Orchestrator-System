@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     # ── Database (Supabase — unified) ────────────────────────
     SUPABASE_DB_URL: str = ""
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
     OWNER_ID: str = "4c116430-f683-4a8a-91f7-546fa8bc5d76"
 
     # ── LLM ───────────────────────────────────────────────────
@@ -49,7 +51,7 @@ class Settings(BaseSettings):
     HF_TOKEN: str = ""  # optional — avoids HuggingFace Hub rate limits
 
     # ── Retrieval Agent RAG ───────────────────────────────────
-    BUSINESS_TOP_K: int = 5  # rows returned from business data semantic search
+    BUSINESS_TOP_K: int = 10  # rows returned from business data semantic search
 
     # ── External Research ─────────────────────────────────────
     TAVILY_API_KEY: str = ""
@@ -60,8 +62,11 @@ class Settings(BaseSettings):
     # ── Application ───────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     APP_ENV: str = "development"
+    INTERNAL_API_KEY: str = ""
+    AUTO_CREATE_SUPABASE_AUTH_USERS: bool = False
     MAX_REPLAN_CYCLES: int = 2
     MAX_PARALLEL_TASKS: int = 4
+    BACKEND_PUBLIC_URL: str = ""
 
     # ── Observability ─────────────────────────────────────────
     LANGFUSE_SECRET_KEY: str = ""

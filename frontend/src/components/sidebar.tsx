@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import LogoutButton from "@/components/logout-button";
 
-const links = [
+const ownerLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/chat", label: "Chat to Agent" },
   { href: "/messages", label: "Messages" },
@@ -20,19 +20,31 @@ const links = [
   { href: "/profile", label: "Profile" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ role = "owner" }: { role?: string }) {
   const pathname = usePathname();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  let links = ownerLinks;
+  let panelTitle = "Owner Panel";
+  
+  if (role === "customer") {
+    links = [{ href: "/dashboards/customer", label: "Customer Dashboard" }, { href: "/chat", label: "Contact Support" }];
+    panelTitle = "Customer Portal";
+  } else if (role === "investor") {
+    links = [{ href: "/dashboards/investor", label: "Investor Dashboard" }];
+    panelTitle = "Investor Portal";
+  } else if (role === "supplier") {
+    links = [{ href: "/dashboards/supplier", label: "Supplier Dashboard" }, { href: "/chat", label: "Contact Support" }];
+    panelTitle = "Supplier Portal";
+  } else if (role === "partner") {
+    links = [{ href: "/dashboards/partner", label: "Partner Dashboard" }, { href: "/chat", label: "Contact Support" }];
+    panelTitle = "Partner Portal";
+  }
 
   return (
     <aside className="hidden w-72 shrink-0 border-r border-zinc-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,244,245,0.92))] lg:flex lg:flex-col">
       <div className="border-b border-zinc-200/80 px-6 py-5">
         <div className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
-          Owner Panel
+          {panelTitle}
         </div>
         <div className="mt-2 text-xl font-semibold text-zinc-900">
           Business Orchestrator
@@ -44,7 +56,7 @@ export default function Sidebar() {
 
       <nav className="flex-1 space-y-1 p-4">
         {links.map((link) => {
-          const active = mounted && pathname === link.href;
+          const active = pathname === link.href;
           return (
             <Link
               key={link.href}
@@ -60,6 +72,10 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      <div className="border-t border-zinc-200/80 p-4">
+        <LogoutButton />
+      </div>
     </aside>
   );
 }

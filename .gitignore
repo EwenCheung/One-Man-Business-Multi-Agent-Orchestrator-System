@@ -32,6 +32,7 @@ yarn-error.log
 venv
 .env
 .env.local
+.env.local*
 build/
 dist/
 *.egg-info/
@@ -55,3 +56,6 @@ uv.lock
 
 # Playwright test results
 frontend/test-results/
+.agents/
+.claude/
+*.pid

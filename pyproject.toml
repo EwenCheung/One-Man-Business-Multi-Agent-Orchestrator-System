@@ -27,6 +27,7 @@ dependencies = [
     "docling>=2.82.0",
     "sentence-transformers>=3.0.0",
     "langfuse>=3.0.0",
+    "supabase>=2.0.0",
 ]
 
 [project.optional-dependencies]

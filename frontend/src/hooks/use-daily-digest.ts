@@ -3,9 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchDailyDigest } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
-import type { DailyDigestItem } from "@/lib/types";
+import type { DailyDigestPayload } from "@/lib/types";
 
-export function useDailyDigest(initialData: DailyDigestItem[]) {
+export function useDailyDigest(initialData: DailyDigestPayload) {
   return useQuery({
     queryKey: queryKeys.dailyDigest.list(),
     queryFn: fetchDailyDigest,

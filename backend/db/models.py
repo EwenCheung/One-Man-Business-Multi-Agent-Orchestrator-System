@@ -21,6 +21,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -73,11 +74,24 @@ class Customer(Base):
     status: Mapped[Optional[str]] = mapped_column(Text, nullable=True, server_default="active")
     preference: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    telegram_user_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    telegram_username: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_contact: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
     orders: Mapped[list["Order"]] = relationship(back_populates="customer")
+
+    __table_args__ = (
+        Index(
+            "ix_customers_owner_telegram_user_id",
+            "owner_id",
+            "telegram_user_id",
+            unique=True,
+            postgresql_where=text("telegram_user_id IS NOT NULL"),
+        ),
+    )
 
 
 class Product(Base):
@@ -625,6 +639,8 @@ class Profile(Base):
     notifications_enabled: Mapped[Optional[bool]] = mapped_column(
         Boolean, nullable=True, server_default="true"
     )
+    telegram_bot_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    telegram_webhook_secret: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     memory_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     soul_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rule_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

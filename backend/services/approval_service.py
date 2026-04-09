@@ -294,7 +294,6 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
             except (ValueError, TypeError):
                 conversation_thread_uuid = None
 
-        # Save to messages table since it's now approved to be sent
         session.execute(
             text("""
                 INSERT INTO public.messages (
@@ -363,6 +362,14 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
         )
 
         session.commit()
+
+        from backend.integrations.telegram_sender import send_telegram_reply
+
+        _ = send_telegram_reply(
+            owner_id=str(result["owner_id"]),
+            sender_external_id=result["sender_id"],
+            reply_text=result["reply_text"],
+        )
 
         from backend.agents.memory_agent import memory_update_node
 

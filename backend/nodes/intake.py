@@ -38,7 +38,18 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     """
     raw_msg = str(state.get("raw_message", ""))
     external_sender_id = str(state.get("external_sender_id") or state.get("sender_id", ""))
+    owner_id = str(state.get("owner_id") or settings.OWNER_ID)
     sender_name = str(state.get("sender_name", "Unknown"))
+    telegram_username = state.get("telegram_username")
+    telegram_chat_id = state.get("telegram_chat_id")
+    telegram_contact_phone = state.get("telegram_contact_phone")
+
+    aliases = []
+    if telegram_username:
+        aliases.append(telegram_username)
+    if telegram_contact_phone:
+        aliases.append(str(telegram_contact_phone))
+
     cleaned_message = " ".join(str(raw_msg).split())
     fallback_soul = _load_agent_file("SOUL.md")
     fallback_rules = _load_agent_file("RULE.md")
@@ -53,7 +64,15 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     try:
         requested_thread_id = str(state.get("thread_id") or "").strip() or None
 
-        resolved_identity = resolve_or_create_sender(session, external_sender_id, sender_name)
+        resolved_identity = resolve_or_create_sender(
+            session,
+            external_sender_id,
+            sender_name,
+            aliases=aliases if aliases else None,
+            telegram_username=str(telegram_username) if telegram_username else None,
+            telegram_chat_id=str(telegram_chat_id) if telegram_chat_id else None,
+            owner_id=owner_id,
+        )
         sender_role = resolved_identity["sender_role"]
         sender_id = resolved_identity["sender_id"]
         entity_id = resolved_identity["entity_id"]
@@ -64,6 +83,7 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
             sender_role=sender_role,
             external_sender_id=external_sender_id,
             sender_name=sender_name,
+            sender_channel="telegram" if str(external_sender_id).startswith("tg:") else "api",
             requested_thread_id=requested_thread_id,
         )
 
@@ -132,7 +152,6 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     finally:
         session.close()
 
-    # 2. Extract context
     session = SessionLocal()
     try:
         profile_contexts = get_profile_contexts(session, owner_id=owner_id_to_use)

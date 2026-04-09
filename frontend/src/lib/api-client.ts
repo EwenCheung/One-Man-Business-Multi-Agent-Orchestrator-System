@@ -2,7 +2,7 @@
 
 import type {
   ApprovalItem,
-  DailyDigestItem,
+  DailyDigestPayload,
   DailyDigestInput,
   DashboardPayload,
   MemoryOverviewPayload,
@@ -10,6 +10,8 @@ import type {
   MessageThreadDetailResponse,
   MessageThreadsResponse,
   OwnerChatThreadsResponse,
+  OwnerChatThreadDetailResponse,
+  MyChatThreadResponse,
   OwnerProfile,
   OwnerProfileInput,
   OrderDetail,
@@ -55,12 +57,12 @@ export async function fetchPendingApprovals(): Promise<ApprovalItem[]> {
   return readJson<ApprovalItem[]>(response);
 }
 
-export async function fetchDailyDigest(): Promise<DailyDigestItem[]> {
+export async function fetchDailyDigest(): Promise<DailyDigestPayload> {
   const response = await fetch("/api/daily-digest", {
     credentials: "include",
   });
 
-  return readJson<DailyDigestItem[]>(response);
+  return readJson<DailyDigestPayload>(response);
 }
 
 export async function fetchMemoryOverview(): Promise<MemoryOverviewPayload> {
@@ -301,6 +303,22 @@ export async function deleteOwnerChatThread(threadId: string): Promise<{ ok: tru
   });
 
   return readJson<{ ok: true }>(response);
+}
+
+export async function fetchOwnerChatThread(threadId: string): Promise<OwnerChatThreadDetailResponse> {
+  const response = await fetch(`/api/owner-chat/threads/${threadId}`, {
+    credentials: "include",
+  });
+
+  return readJson<OwnerChatThreadDetailResponse>(response);
+}
+
+export async function fetchMyChatThread(): Promise<MyChatThreadResponse> {
+  const response = await fetch("/api/chat/me", {
+    credentials: "include",
+  });
+
+  return readJson<MyChatThreadResponse>(response);
 }
 
 export async function sendOwnerChatMessage(params: {

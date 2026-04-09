@@ -1,9 +1,9 @@
 "use client";
 
 import DailyDigestSection from "@/components/owner-dashboard/sections/daily-digest-section";
-import type { DailyDigestItem } from "@/lib/types";
+import type { DailyDigestPayload } from "@/lib/types";
 
-export default function DailyDigestClient({ initialData }: { initialData: DailyDigestItem[] }) {
+export default function DailyDigestClient({ initialData }: { initialData: DailyDigestPayload }) {
   return (
     <div className="space-y-6">
       <div>

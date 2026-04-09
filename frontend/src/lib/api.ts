@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { ApprovalItem, OrderDetail, OrderRow, OwnerProfile, OwnerProfileInput, ProductRow } from "@/lib/types";
 
 const OWNER_PROFILE_SELECT =
-  "id, full_name, business_name, business_description, business_industry, business_timezone, preferred_language, default_reply_tone, sender_summary_threshold, notifications_email, notifications_enabled, memory_context, soul_context, rule_context, created_at, updated_at";
+  "id, full_name, business_name, business_description, business_industry, business_timezone, preferred_language, default_reply_tone, sender_summary_threshold, notifications_email, notifications_enabled, memory_context, soul_context, rule_context, telegram_bot_token, telegram_webhook_secret, created_at, updated_at";
 
 function buildReplyApprovalReason(riskFlags: string[] | null | undefined) {
   if (!riskFlags || riskFlags.length === 0) {
@@ -61,6 +61,7 @@ export async function getCustomers() {
     .from("customers")
     .select("*")
     .eq("owner_id", user.id)
+    .neq("status", "inactive")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -74,6 +75,7 @@ export async function getSuppliers() {
     .from("suppliers")
     .select("*")
     .eq("owner_id", user.id)
+    .neq("status", "inactive")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -87,6 +89,7 @@ export async function getInvestors() {
     .from("investors")
     .select("*")
     .eq("owner_id", user.id)
+    .neq("status", "inactive")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -100,6 +103,7 @@ export async function getPartners() {
     .from("partners")
     .select("*")
     .eq("owner_id", user.id)
+    .neq("status", "inactive")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -438,6 +442,151 @@ export async function getDailyDigest() {
   return data ?? [];
 }
 
+function startOfUtcToday() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function monthKey(dateValue: string) {
+  const date = new Date(dateValue);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(monthKeyValue: string) {
+  const [year, month] = monthKeyValue.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+export async function getDailyDigestPayload() {
+  const { supabase, user } = await requireAuthenticatedClient();
+  const items = await getDailyDigest();
+
+  const today = startOfUtcToday();
+  const todayIsoDate = today.toISOString().slice(0, 10);
+  const todayIso = today.toISOString();
+  const ordersCutoffDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 11, 1))
+    .toISOString()
+    .slice(0, 10);
+
+  const months: { key: string; label: string }[] = [];
+  for (let offset = 11; offset >= 0; offset -= 1) {
+    const date = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - offset, 1));
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    months.push({ key, label: monthLabel(key) });
+  }
+  const monthKeys = new Set(months.map((month) => month.key));
+
+  const [ordersResult, outboundMessagesResult, memoryEntriesResult, memoryProposalsResult] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("order_date, total_price, status")
+      .eq("owner_id", user.id)
+      .gte("order_date", ordersCutoffDate),
+    supabase
+      .from("messages")
+      .select("sender_name, sender_role, content, created_at")
+      .eq("owner_id", user.id)
+      .eq("direction", "outbound")
+      .gte("created_at", todayIso)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("memory_entries")
+      .select("created_at")
+      .eq("owner_id", user.id)
+      .gte("created_at", todayIso),
+    supabase
+      .from("memory_update_proposals")
+      .select("created_at")
+      .eq("owner_id", user.id)
+      .gte("created_at", todayIso),
+  ]);
+
+  if (ordersResult.error) throw ordersResult.error;
+  if (outboundMessagesResult.error) throw outboundMessagesResult.error;
+  if (memoryEntriesResult.error) throw memoryEntriesResult.error;
+  if (memoryProposalsResult.error) throw memoryProposalsResult.error;
+
+  const orders = ordersResult.data ?? [];
+  const outboundMessages = outboundMessagesResult.data ?? [];
+  const memoryEntries = memoryEntriesResult.data ?? [];
+  const memoryProposals = memoryProposalsResult.data ?? [];
+
+  const todayOrders = orders.filter((order) => order.order_date === todayIsoDate);
+  const paidSalesToday = todayOrders
+    .filter((order) => (order.status || "").toLowerCase() === "paid")
+    .reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+
+  const contactMap = new Map<string, { name: string; role: string; count: number; latest: string }>();
+  for (const message of outboundMessages) {
+    const name = message.sender_name || "Unknown";
+    const role = message.sender_role || "unknown";
+    const key = `${role}:${name}`;
+    const current = contactMap.get(key);
+
+    if (current) {
+      current.count += 1;
+      if (!current.latest) current.latest = message.content || "";
+    } else {
+      contactMap.set(key, {
+        name,
+        role,
+        count: 1,
+        latest: message.content || "",
+      });
+    }
+  }
+
+  const activities = [
+    ...Array.from(contactMap.values()).slice(0, 6).map((entry) => ({
+      title: `Replied to ${entry.name}`,
+      detail: `${entry.count} reply${entry.count === 1 ? "" : "ies"} sent today for this ${entry.role}. Latest action: ${(entry.latest || "No preview available.").slice(0, 140)}${(entry.latest || "").length > 140 ? "…" : ""}`,
+    })),
+    ...(memoryEntries.length > 0
+      ? [{ title: "Memory saved", detail: `${memoryEntries.length} durable memory update${memoryEntries.length === 1 ? "" : "s"} saved today.` }]
+      : []),
+    ...(memoryProposals.length > 0
+      ? [{ title: "Memory awaiting review", detail: `${memoryProposals.length} memory proposal${memoryProposals.length === 1 ? "" : "s"} created for owner review today.` }]
+      : []),
+  ].slice(0, 8);
+
+  const monthlyAccumulator = new Map<string, { orders: number; paidSales: number }>();
+  for (const month of months) {
+    monthlyAccumulator.set(month.key, { orders: 0, paidSales: 0 });
+  }
+
+  for (const order of orders) {
+    if (!order.order_date) continue;
+    const key = monthKey(order.order_date);
+    if (!monthKeys.has(key)) continue;
+    const bucket = monthlyAccumulator.get(key);
+    if (!bucket) continue;
+    bucket.orders += 1;
+    if ((order.status || "").toLowerCase() === "paid") {
+      bucket.paidSales += Number(order.total_price || 0);
+    }
+  }
+
+  return {
+    items,
+    metrics: {
+      contactsToday: contactMap.size,
+      newOrdersToday: todayOrders.length,
+      paidSalesToday,
+      memoryUpdatesToday: memoryEntries.length + memoryProposals.length,
+    },
+    monthly: months.map((month) => ({
+      month: month.label,
+      orders: monthlyAccumulator.get(month.key)?.orders || 0,
+      paidSales: monthlyAccumulator.get(month.key)?.paidSales || 0,
+    })),
+    activities,
+  };
+}
+
 export async function getOwnerMemoryRules() {
   const { supabase, user } = await requireAuthenticatedClient();
 
@@ -500,7 +649,7 @@ export async function getDashboardPayload() {
   const [stats, pendingApprovals, dailyDigest, memoryQueue] = await Promise.all([
     getDashboardStats(),
     getPendingApprovals(),
-    getDailyDigest(),
+    getDailyDigestPayload(),
     getPendingMemoryApprovals(),
   ]);
 
