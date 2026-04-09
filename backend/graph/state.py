@@ -36,6 +36,10 @@ class PipelineState(TypedDict, total=False):
     thread_id: str
     conversation_thread_id: str
     source_type: str
+    telegram_user_id: str
+    telegram_username: str
+    telegram_chat_id: str
+    telegram_contact_phone: str
 
     # ── Intake Agent output ───────────────────────────────────
     sender_role: str

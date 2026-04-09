@@ -38,7 +38,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
           approvals={data.pendingApprovals.slice(0, 6)}
           description="Items that still need owner review before action is taken."
         />
-        <DailyDigestSection initialData={data.dailyDigest} compact />
+        <DailyDigestSection initialData={data.dailyDigest} title="Statistics" compact />
       </div>
 
       <MemoryQueueSection items={data.memoryQueue} />

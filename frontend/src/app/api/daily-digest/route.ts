@@ -1,4 +1,4 @@
-import { getAuthenticatedClient, getDailyDigest } from "@/lib/api";
+import { getAuthenticatedClient, getDailyDigestPayload } from "@/lib/api";
 import type { DailyDigestInput } from "@/lib/types";
 import { NextResponse } from "next/server";
 
@@ -9,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const digest = await getDailyDigest();
+  const digest = await getDailyDigestPayload();
   return NextResponse.json(digest);
 }
 

@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Send, Loader2, User, Bot, MessageSquare, Trash2, Plus } from "lucide-react";
-import { fetchOwnerChatThreads, deleteOwnerChatThread, sendOwnerChatMessage } from "@/lib/api-client";
-import type { OwnerChatThread } from "@/lib/types";
+import { fetchMyChatThread, fetchOwnerChatThread, fetchOwnerChatThreads, deleteOwnerChatThread, sendOwnerChatMessage } from "@/lib/api-client";
+import type { MessageInThread, OwnerChatThread } from "@/lib/types";
 
 interface ChatMessage {
   id: string;
@@ -12,12 +12,31 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-export default function ChatClient() {
+type ChatClientProps = {
+  panelTitle?: string;
+  panelDescription?: string;
+  welcomeTitle?: string;
+  welcomeDescription?: string;
+  inputPlaceholder?: string;
+  showThreads?: boolean;
+  useStakeholderThread?: boolean;
+};
+
+export default function ChatClient({
+  panelTitle = "Chat to Agent",
+  panelDescription = "Unrestricted access to your business orchestration agent.",
+  welcomeTitle = "Welcome to Owner Chat",
+  welcomeDescription = "You have unrestricted access to your business data. Ask about margins, costs, inventory, or request operational insights.",
+  inputPlaceholder = "Ask your agent anything...",
+  showThreads = true,
+  useStakeholderThread = false,
+}: ChatClientProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [threads, setThreads] = useState<OwnerChatThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [pendingNewThread, setPendingNewThread] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -30,38 +49,96 @@ export default function ChatClient() {
   }, [messages, isLoading]);
 
   useEffect(() => {
-    loadThreads();
-  }, []);
+    if (showThreads) {
+      loadThreads();
+    } else if (useStakeholderThread) {
+      loadStakeholderThread();
+    } else {
+      setIsLoadingThreads(false);
+      setSelectedThreadId(`chat-thread-${Date.now()}`);
+    }
+  }, [showThreads, useStakeholderThread]);
 
-  const loadThreads = async () => {
+  useEffect(() => {
+    if (!showThreads || !selectedThreadId) return;
+    loadThreadMessages(selectedThreadId);
+  }, [showThreads, selectedThreadId]);
+
+  const loadThreads = async (): Promise<OwnerChatThread[]> => {
     setIsLoadingThreads(true);
     try {
       const response = await fetchOwnerChatThreads();
-      setThreads(response.threads || []);
+      const nextThreads = response.threads || [];
+      setThreads(nextThreads);
       
-      if (response.threads && response.threads.length > 0 && !selectedThreadId) {
-        setSelectedThreadId(response.threads[0].thread_id);
-      } else if (!response.threads || response.threads.length === 0) {
-        const newThreadId = `owner-thread-${Date.now()}`;
-        setSelectedThreadId(newThreadId);
+      if (nextThreads.length > 0 && !selectedThreadId) {
+        setSelectedThreadId(nextThreads[0].thread_id);
+        setPendingNewThread(false);
+      } else if (nextThreads.length === 0) {
+        setSelectedThreadId(null);
+        setPendingNewThread(true);
       }
+      return nextThreads;
     } catch (error) {
       console.error("Failed to load threads:", error);
-      const newThreadId = `owner-thread-${Date.now()}`;
-      setSelectedThreadId(newThreadId);
+      setSelectedThreadId(null);
+      setPendingNewThread(true);
+      return [];
     } finally {
       setIsLoadingThreads(false);
     }
   };
 
+  const loadStakeholderThread = async () => {
+    setIsLoadingThreads(true);
+    try {
+      const response = await fetchMyChatThread();
+      if (response.thread?.thread_id) {
+        setSelectedThreadId(response.thread.thread_id);
+        setPendingNewThread(false);
+        setMessages(mapThreadMessages(response.messages || []));
+      } else {
+        setSelectedThreadId(null);
+        setPendingNewThread(true);
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error("Failed to load stakeholder thread:", error);
+      setSelectedThreadId(null);
+      setPendingNewThread(true);
+      setMessages([]);
+    } finally {
+      setIsLoadingThreads(false);
+    }
+  };
+
+  const mapThreadMessages = (items: MessageInThread[]): ChatMessage[] =>
+    items.map((message) => ({
+      id: message.id,
+      role: message.direction === "inbound" ? "user" : "agent",
+      content: message.content,
+      timestamp: message.created_at ? new Date(message.created_at) : new Date(),
+    }));
+
+  const loadThreadMessages = async (threadId: string) => {
+    try {
+      const response = await fetchOwnerChatThread(threadId);
+      setMessages(mapThreadMessages(response.messages || []));
+    } catch (error) {
+      console.error("Failed to load thread messages:", error);
+      setMessages([]);
+    }
+  };
+
   const handleCreateNewThread = () => {
-    const newThreadId = `owner-thread-${Date.now()}`;
-    setSelectedThreadId(newThreadId);
+    setSelectedThreadId(null);
+    setPendingNewThread(true);
     setMessages([]);
   };
 
   const handleSwitchThread = (threadId: string) => {
     setSelectedThreadId(threadId);
+    setPendingNewThread(false);
     setMessages([]);
   };
 
@@ -74,13 +151,14 @@ export default function ChatClient() {
 
     try {
       await deleteOwnerChatThread(threadId);
-      
-      setThreads(prev => prev.filter(t => t.thread_id !== threadId));
-      
+
+      const nextThreads = await loadThreads();
+
       if (selectedThreadId === threadId) {
-        const remainingThreads = threads.filter(t => t.thread_id !== threadId);
-        if (remainingThreads.length > 0) {
-          setSelectedThreadId(remainingThreads[0].thread_id);
+        if (nextThreads.length > 0) {
+          setSelectedThreadId(nextThreads[0].thread_id);
+          setPendingNewThread(false);
+          await loadThreadMessages(nextThreads[0].thread_id);
         } else {
           handleCreateNewThread();
         }
@@ -106,11 +184,7 @@ export default function ChatClient() {
     setIsLoading(true);
 
     try {
-      const threadId = selectedThreadId || `owner-thread-${Date.now()}`;
-
-      if (!selectedThreadId) {
-        setSelectedThreadId(threadId);
-      }
+      const threadId = selectedThreadId || undefined;
 
       const data = await sendOwnerChatMessage({
         raw_message: userMessage.content,
@@ -126,7 +200,17 @@ export default function ChatClient() {
 
       setMessages((prev) => [...prev, agentMessage]);
       
-      loadThreads();
+      if (showThreads) {
+        const nextThreads = await loadThreads();
+        const nextThreadId = selectedThreadId || nextThreads[0]?.thread_id || null;
+        if (nextThreadId) {
+          setSelectedThreadId(nextThreadId);
+          setPendingNewThread(false);
+          await loadThreadMessages(nextThreadId);
+        }
+      } else if (useStakeholderThread) {
+        await loadStakeholderThread();
+      }
     } catch (error: any) {
       const errorMessage: ChatMessage = {
         id: crypto.randomUUID(),
@@ -142,7 +226,7 @@ export default function ChatClient() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-4">
-      <div className="w-72 flex flex-col rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
+      {showThreads ? <div className="w-72 flex flex-col rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-zinc-200 px-4 py-3 bg-zinc-50/50 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-zinc-900">Conversations</h3>
           <button
@@ -168,15 +252,19 @@ export default function ChatClient() {
           ) : (
             <div className="py-2">
               {threads.map((thread) => (
-                <button
+                <div
                   key={thread.thread_id}
-                  onClick={() => handleSwitchThread(thread.thread_id)}
                   className={`w-full px-4 py-3 text-left hover:bg-zinc-50 transition border-l-2 flex items-start justify-between gap-2 group ${
                     selectedThreadId === thread.thread_id
                       ? "bg-sky-50 border-sky-500"
                       : "border-transparent"
                   }`}
                 >
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchThread(thread.thread_id)}
+                    className="flex-1 min-w-0 text-left"
+                  >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-zinc-900 truncate">
                       {thread.title || "New conversation"}
@@ -188,24 +276,26 @@ export default function ChatClient() {
                       )}
                     </div>
                   </div>
+                  </button>
                   <button
+                    type="button"
                     onClick={(e) => handleDeleteThread(thread.thread_id, e)}
                     className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 transition-opacity"
                     title="Delete thread"
                   >
                     <Trash2 className="h-3.5 w-3.5 text-red-600" />
                   </button>
-                </button>
+                </div>
               ))}
             </div>
           )}
         </div>
-      </div>
+      </div> : null}
 
       <div className="flex-1 flex flex-col rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-zinc-200 px-6 py-4 bg-zinc-50/50">
-          <h2 className="text-lg font-semibold text-zinc-900">Chat to Agent</h2>
-          <p className="text-sm text-zinc-500">Unrestricted access to your business orchestration agent.</p>
+          <h2 className="text-lg font-semibold text-zinc-900">{panelTitle}</h2>
+          <p className="text-sm text-zinc-500">{panelDescription}</p>
         </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-zinc-50/30">
@@ -213,9 +303,9 @@ export default function ChatClient() {
           <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-md">
               <Bot className="mx-auto h-12 w-12 text-zinc-300" />
-              <h3 className="mt-4 text-base font-medium text-zinc-900">Welcome to Owner Chat</h3>
+              <h3 className="mt-4 text-base font-medium text-zinc-900">{welcomeTitle}</h3>
               <p className="mt-2 text-sm text-zinc-500">
-                You have unrestricted access to your business data. Ask about margins, costs, inventory, or request operational insights.
+                {welcomeDescription}
               </p>
             </div>
           </div>
@@ -257,7 +347,7 @@ export default function ChatClient() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask your agent anything..."
+            placeholder={inputPlaceholder}
             disabled={isLoading}
             className="flex-1 rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:bg-zinc-50 disabled:text-zinc-500"
           />

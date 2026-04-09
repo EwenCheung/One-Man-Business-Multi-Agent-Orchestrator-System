@@ -55,3 +55,6 @@ uv.lock
 
 # Playwright test results
 frontend/test-results/
+.agents/
+.claude/
+*.pid

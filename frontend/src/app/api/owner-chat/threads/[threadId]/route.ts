@@ -14,6 +14,36 @@ type RouteContext = {
   params: Promise<{ threadId: string }>;
 };
 
+export async function GET(_request: NextRequest, context: RouteContext) {
+  const auth = await getAuthenticatedClient({ redirectOnFail: false });
+
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { threadId } = await context.params;
+  const backendUrl = `${getBackendBaseUrl()}/api/v1/owner-chat/threads/${threadId}?owner_id=${auth.user.id}`;
+
+  const response = await fetch(backendUrl, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    return NextResponse.json(
+      { error: text || "Failed to fetch owner chat thread" },
+      { status: response.status }
+    );
+  }
+
+  const data = await response.json();
+  return NextResponse.json(data);
+}
+
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
 
@@ -22,8 +52,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   }
 
   const { threadId } = await context.params;
-
-  const backendUrl = `${getBackendBaseUrl()}/api/v1/owner-chat/threads/${threadId}`;
+  const backendUrl = `${getBackendBaseUrl()}/api/v1/owner-chat/threads/${threadId}?owner_id=${auth.user.id}`;
 
   const response = await fetch(backendUrl, {
     method: "DELETE",

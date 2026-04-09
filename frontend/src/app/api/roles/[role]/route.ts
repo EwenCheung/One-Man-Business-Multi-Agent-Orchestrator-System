@@ -3,6 +3,20 @@ import { roleTableMap, stakeholderRoles, type StakeholderRole } from "@/lib/stak
 import type { StakeholderInput } from "@/lib/types";
 import { NextResponse } from "next/server";
 
+const allowedFieldsByRole: Record<StakeholderRole, string[]> = {
+  customers: ["name", "telegram_username", "email", "phone", "company", "status", "preference", "notes"],
+  suppliers: ["name", "email", "phone", "category", "status", "contract_notes"],
+  investors: ["name", "email", "phone", "focus", "status", "notes"],
+  partners: ["name", "email", "phone", "partner_type", "status", "notes"],
+};
+
+function sanitizeStakeholderPayload(role: StakeholderRole, payload: StakeholderInput) {
+  const allowedFields = allowedFieldsByRole[role];
+  return Object.fromEntries(
+    Object.entries(payload).filter(([key]) => allowedFields.includes(key))
+  );
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ role: string }> }
@@ -25,6 +39,7 @@ export async function GET(
     .from(table)
     .select("*")
     .eq("owner_id", auth.user.id)
+    .neq("status", "inactive")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -57,12 +72,13 @@ export async function POST(
   }
 
   const table = roleTableMap[role as StakeholderRole];
+  const sanitizedPayload = sanitizeStakeholderPayload(role as StakeholderRole, payload);
   const { data, error } = await auth.supabase
     .from(table)
     .insert({
       id: crypto.randomUUID(),
       owner_id: auth.user.id,
-      ...payload,
+      ...sanitizedPayload,
       name: payload.name.trim(),
     })
     .select("*")

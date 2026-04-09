@@ -8,6 +8,7 @@ Run with:
 from fastapi import FastAPI
 
 from backend.api.router import api_router
+from backend.integrations.telegram_webhook import telegram_router
 
 
 def create_app() -> FastAPI:
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
 
     # ── Routes ────────────────────────────────────────────────
     application.include_router(api_router, prefix="/api/v1")
+    application.include_router(telegram_router, prefix="/api/v1/telegram")
 
     # ── Health check ──────────────────────────────────────────
     @application.get("/health", tags=["system"])

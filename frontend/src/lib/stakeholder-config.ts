@@ -21,6 +21,7 @@ export const switchTargetOptions: Record<StakeholderRole, StakeholderRole[]> = {
 export const stakeholderFieldLabels: Record<StakeholderRole, Array<{ key: string; label: string }>> = {
   customers: [
     { key: "name", label: "Name" },
+    { key: "telegram_username", label: "Username" },
     { key: "email", label: "Email" },
     { key: "phone", label: "Phone" },
     { key: "company", label: "Company" },

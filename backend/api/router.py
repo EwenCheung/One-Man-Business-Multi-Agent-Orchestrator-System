@@ -27,6 +27,7 @@ from backend.services.approval_service import (
 from backend.services.conversation_memory import (
     delete_owner_chat_thread,
     get_external_sender_thread_detail,
+    get_owner_chat_thread_detail,
     list_external_sender_threads,
     list_owner_chat_threads,
 )
@@ -90,10 +91,14 @@ async def receive_message(incoming: IncomingMessage):
         "raw_message": incoming.raw_message,
         "sender_id": incoming.sender_id,
         "external_sender_id": incoming.sender_id,
-        "owner_id": settings.OWNER_ID,
+        "owner_id": incoming.owner_id or settings.OWNER_ID,
         "trace_id": uuid.uuid4().hex,
         "sender_name": incoming.sender_name or "Unknown",
         "thread_id": incoming.thread_id or incoming.sender_id,
+        "telegram_user_id": incoming.telegram_user_id,
+        "telegram_username": incoming.telegram_username,
+        "telegram_chat_id": incoming.telegram_chat_id,
+        "telegram_contact_phone": incoming.telegram_contact_phone,
     }
 
     # Setup Langfuse callbacks if configured
@@ -109,7 +114,7 @@ async def receive_message(incoming: IncomingMessage):
                 "langfuse_session_id": initial_state["thread_id"],
                 "langfuse_tags": ["api", "langgraph", "orchestrator"],
                 "external_id": initial_state["trace_id"],
-                "owner_id": settings.OWNER_ID,
+                "owner_id": incoming.owner_id or settings.OWNER_ID,
                 "sender_name": incoming.sender_name or "Unknown",
                 "endpoint": "/api/v1/messages/incoming",
             },
@@ -132,7 +137,6 @@ async def receive_message(incoming: IncomingMessage):
         else reply_text
     )
 
-    # Only save to thread history if the message is actually delivered to the user
     if not requires_approval and reply_text and reply_text != "No reply generated.":
         session = SessionLocal()
         try:
@@ -170,6 +174,15 @@ async def receive_message(incoming: IncomingMessage):
                 )
 
             session.commit()
+
+            from backend.integrations.telegram_sender import send_telegram_reply
+
+            _ = send_telegram_reply(
+                owner_id=result.get("owner_id", settings.OWNER_ID),
+                sender_external_id=result.get("external_sender_id", incoming.sender_id),
+                reply_text=reply_text,
+            )
+
             record_auto_sent_reply(
                 owner_id=result.get("owner_id", settings.OWNER_ID),
                 trace_id=result.get("trace_id", initial_state["trace_id"]),
@@ -287,27 +300,45 @@ async def get_thread_history(thread_id: str):
 
 
 @api_router.get("/owner-chat/threads")
-async def get_owner_chat_threads(limit: int = 100):
+async def get_owner_chat_threads(limit: int = 100, owner_id: str | None = None):
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
     from backend.db.engine import SessionLocal
 
     session = SessionLocal()
     try:
-        return list_owner_chat_threads(session, owner_id=settings.OWNER_ID, limit=limit)
+        return list_owner_chat_threads(session, owner_id=owner_id or settings.OWNER_ID, limit=limit)
+    finally:
+        session.close()
+
+
+@api_router.get("/owner-chat/threads/{thread_id}")
+async def get_owner_chat_thread(thread_id: str, owner_id: str | None = None):
+    from backend.db.engine import SessionLocal
+
+    session = SessionLocal()
+    try:
+        result = get_owner_chat_thread_detail(
+            session,
+            owner_id=owner_id or settings.OWNER_ID,
+            thread_id=thread_id,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Owner chat thread not found")
+        return result
     finally:
         session.close()
 
 
 @api_router.delete("/owner-chat/threads/{thread_id}")
-async def delete_owner_chat_thread_endpoint(thread_id: str):
+async def delete_owner_chat_thread_endpoint(thread_id: str, owner_id: str | None = None):
     from backend.db.engine import SessionLocal
 
     session = SessionLocal()
     try:
         result = delete_owner_chat_thread(
             session,
-            owner_id=settings.OWNER_ID,
+            owner_id=owner_id or settings.OWNER_ID,
             thread_id=thread_id,
         )
         if result is None:

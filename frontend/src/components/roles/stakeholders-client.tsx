@@ -9,6 +9,25 @@ import { useStakeholderMutations, useStakeholders } from "@/hooks/use-stakeholde
 import { stakeholderFieldLabels, switchTargetOptions, type StakeholderRole } from "@/lib/stakeholder-config";
 import type { StakeholderInput, StakeholderRow, TableColumn } from "@/lib/types";
 
+const allowedFieldsByRole = {
+  customers: ["name", "telegram_username", "email", "phone", "company", "status", "preference", "notes"],
+  suppliers: ["name", "email", "phone", "category", "status", "contract_notes"],
+  investors: ["name", "email", "phone", "focus", "status", "notes"],
+  partners: ["name", "email", "phone", "partner_type", "status", "notes"],
+} as const;
+
+function toStakeholderInput(role: StakeholderRole, row: StakeholderRow): StakeholderInput {
+  const fields = allowedFieldsByRole[role];
+  const next: StakeholderInput = { name: row.name };
+  for (const field of fields) {
+    const value = row[field as keyof StakeholderRow];
+    if (value !== undefined) {
+      (next as Record<string, unknown>)[field] = value;
+    }
+  }
+  return next;
+}
+
 type ConfirmState =
   | { type: "create" }
   | { type: "edit"; row: StakeholderRow }
@@ -19,6 +38,7 @@ type ConfirmState =
 function emptyForm(role: StakeholderRole): StakeholderInput {
   return {
     name: "",
+    telegram_username: role === "customers" ? "" : undefined,
     email: "",
     phone: "",
     status: "active",
@@ -95,10 +115,19 @@ export default function StakeholdersClient({
   const [overlayMode, setOverlayMode] = useState<"edit" | "switch" | null>(null);
 
   const fieldSet = stakeholderFieldLabels[role];
+  const visibleData = useMemo(
+    () => data.filter((row) => (row.status ?? "active") !== "inactive"),
+    [data]
+  );
 
   const columns = useMemo<TableColumn<StakeholderRow>[]>(() => {
     const primaryColumns: TableColumn<StakeholderRow>[] = [
       { key: "name", label: "Name" },
+      {
+        key: "telegram_username",
+        label: "Username",
+        render: (_, row) => (row.role === "customers" ? row.telegram_username ? `@${row.telegram_username}` : "—" : "—"),
+      },
       { key: "email", label: "Email" },
       { key: "phone", label: "Phone" },
       {
@@ -127,7 +156,7 @@ export default function StakeholdersClient({
             <button
               onClick={() => {
                 setSelectedRow(row);
-                setForm({ ...row });
+                setForm(toStakeholderInput(role, row));
                 setOverlayMode("edit");
                 setErrorMessage(null);
               }}
@@ -239,14 +268,14 @@ export default function StakeholdersClient({
     if (confirmState.type === "delete") {
       return {
         title: `Confirm removal for ${confirmState.row.name}`,
-        description: `This will mark the record inactive and remove its identity mapping if possible. Continue?`,
+        description: `This will permanently delete the current ${role.slice(0, -1)} record and remove its identity mapping if allowed by dependency checks. Continue?`,
         confirmLabel: "Confirm remove",
         loading: isDeleting,
       };
     }
     return {
       title: `Confirm switch from ${titleCase(role.slice(0, -1))} to ${titleCase(confirmState.targetRole.slice(0, -1))}`,
-      description: `This will create a new ${confirmState.targetRole.slice(0, -1)} record, update the identity mapping, and archive the current ${role.slice(0, -1)} record. Continue?`,
+      description: `This will create a new ${confirmState.targetRole.slice(0, -1)} record, move the identity mapping, and permanently delete the current ${role.slice(0, -1)} record if dependency checks allow it. Continue?`,
       confirmLabel: "Confirm switch",
       loading: isSwitching,
     };
@@ -304,7 +333,7 @@ export default function StakeholdersClient({
       ) : null}
 
       <SectionCard title={`${title} records`} description="Manage records, statuses, and ownership roles.">
-        {isLoading ? <p className="text-sm text-zinc-500">Loading {role}...</p> : <DataTable columns={columns} data={data} />}
+        {isLoading ? <p className="text-sm text-zinc-500">Loading {role}...</p> : <DataTable columns={columns} data={visibleData} />}
       </SectionCard>
 
       <ActionOverlay

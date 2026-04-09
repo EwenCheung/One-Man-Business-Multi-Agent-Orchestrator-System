@@ -8,7 +8,7 @@ import Link from "next/link";
 export default function LoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -17,18 +17,35 @@ export default function LoginPage() {
     setErrorMessage("");
 
     const supabase = createClient();
+    
+    let credentials;
+    const trimmedId = identifier.trim();
+    const isPhone = /^\+?[0-9\s\-]+$/.test(trimmedId);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    if (isPhone) {
+      credentials = { phone: trimmedId.replace(/[\s\-]/g, ""), password };
+    } else {
+      const cleanId = trimmedId.startsWith('@') ? trimmedId.slice(1) : trimmedId;
+      if (cleanId.includes('@')) {
+        credentials = { email: trimmedId, password };
+      } else {
+        credentials = { email: `${cleanId}@telegram.local`, password };
+      }
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword(credentials);
 
     if (error) {
       setErrorMessage(error.message);
       return;
     }
 
-    router.push("/dashboard");
+    const role = data.user?.user_metadata?.role;
+    if (role && role !== "owner") {
+      router.push(`/dashboards/${role}`);
+    } else {
+      router.push("/dashboard");
+    }
     router.refresh();
   }
 
@@ -37,17 +54,17 @@ export default function LoginPage() {
       <div>
         <h1 className="text-3xl font-semibold text-zinc-900">Login</h1>
         <p className="mt-2 text-zinc-500">
-          Sign in to manage your business communication system.
+          Sign in to your dashboard.
         </p>
       </div>
 
       <form onSubmit={handleLogin} className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
         <input
           className="w-full rounded-xl border border-zinc-300 px-4 py-3"
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          type="text"
+          placeholder="Email, Phone, or Username"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
           required
         />
         <input

@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams;
   const limit = searchParams.get("limit") || "100";
-
-  const backendUrl = `${getBackendBaseUrl()}/api/v1/owner-chat/threads?limit=${limit}`;
+  const ownerId = auth.user.id;
+  const backendUrl = `${getBackendBaseUrl()}/api/v1/owner-chat/threads?limit=${limit}&owner_id=${ownerId}`;
 
   const response = await fetch(backendUrl, {
     method: "GET",

@@ -17,6 +17,8 @@ CREATE TABLE public.profiles (
   sender_summary_threshold integer DEFAULT 20,
   notifications_email text,
   notifications_enabled boolean DEFAULT true,
+  telegram_bot_token text,
+  telegram_webhook_secret text,
   memory_context text,
   soul_context text,
   rule_context text,
@@ -51,11 +53,15 @@ CREATE TABLE public.customers (
   status text DEFAULT 'active'::text,
   preference text,
   notes text,
+  telegram_user_id text,
+  telegram_username text,
+  telegram_chat_id text,
   last_contact date,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT customers_pkey PRIMARY KEY (id),
   CONSTRAINT customers_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id)
 );
+CREATE UNIQUE INDEX ix_customers_owner_telegram_user_id ON public.customers USING btree (owner_id, telegram_user_id) WHERE (telegram_user_id IS NOT NULL);
 
 CREATE TABLE public.products (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -419,3 +425,23 @@ CREATE TABLE public.partner_product_relations (
   CONSTRAINT partner_product_relations_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
   CONSTRAINT partner_product_relations_agreement_id_fkey FOREIGN KEY (agreement_id) REFERENCES public.partner_agreements(id)
 );
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname = 'investor_product_metrics'
+  ) THEN
+    EXECUTE 'ALTER TABLE public.investor_product_metrics ENABLE ROW LEVEL SECURITY';
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = 'investor_product_metrics'
+        AND policyname = 'owner_access_investor_product_metrics'
+    ) THEN
+      EXECUTE 'CREATE POLICY owner_access_investor_product_metrics ON public.investor_product_metrics USING (owner_id = auth.uid())';
+    END IF;
+  END IF;
+END
+$$;

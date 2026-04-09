@@ -13,6 +13,12 @@ export type CustomerRow = {
   phone: string | null;
   company: string | null;
   status: string | null;
+  preference: string | null;
+  notes: string | null;
+  telegram_user_id: string | null;
+  telegram_username: string | null;
+  telegram_chat_id: string | null;
+  last_contact: string | null;
 };
 
 export type SupplierRow = {
@@ -55,6 +61,7 @@ export type StakeholderRow =
 
 export type StakeholderInput = {
   name: string;
+  telegram_username?: string | null;
   email?: string | null;
   phone?: string | null;
   status?: string | null;
@@ -194,6 +201,29 @@ export type DailyDigestItem = {
   created_at?: string | null;
 };
 
+export type DailyDigestActivityItem = {
+  title: string;
+  detail: string;
+};
+
+export type DailyDigestMonthlyStat = {
+  month: string;
+  orders: number;
+  paidSales: number;
+};
+
+export type DailyDigestPayload = {
+  items: DailyDigestItem[];
+  metrics: {
+    contactsToday: number;
+    newOrdersToday: number;
+    paidSalesToday: number;
+    memoryUpdatesToday: number;
+  };
+  monthly: DailyDigestMonthlyStat[];
+  activities: DailyDigestActivityItem[];
+};
+
 export type DailyDigestInput = {
   title: string;
   summary: string;
@@ -224,6 +254,8 @@ export type OwnerProfile = {
   memory_context: string | null;
   soul_context: string | null;
   rule_context: string | null;
+  telegram_bot_token: string | null;
+  telegram_webhook_secret: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -244,6 +276,8 @@ export type OwnerProfileInput = Partial<
     | "memory_context"
     | "soul_context"
     | "rule_context"
+    | "telegram_bot_token"
+    | "telegram_webhook_secret"
   >
 >;
 
@@ -261,7 +295,7 @@ export type EntityMemory = {
 export type DashboardPayload = {
   stats: DashboardStat[];
   pendingApprovals: ApprovalItem[];
-  dailyDigest: DailyDigestItem[];
+  dailyDigest: DailyDigestPayload;
   memoryQueue: ApprovalItem[];
 };
 
@@ -348,5 +382,17 @@ export type OwnerChatThread = {
 
 export type OwnerChatThreadsResponse = {
   threads: OwnerChatThread[];
+  status: string;
+};
+
+export type OwnerChatThreadDetailResponse = {
+  thread: ThreadDetail;
+  messages: MessageInThread[];
+  status: string;
+};
+
+export type MyChatThreadResponse = {
+  thread: ThreadDetail | null;
+  messages: MessageInThread[];
   status: string;
 };

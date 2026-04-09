@@ -88,6 +88,8 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
     memory_context: initialData?.memory_context ?? "",
     soul_context: initialData?.soul_context ?? "",
     rule_context: initialData?.rule_context ?? "",
+    telegram_bot_token: initialData?.telegram_bot_token ?? "",
+    telegram_webhook_secret: initialData?.telegram_webhook_secret ?? "",
   });
   const [confirmSave, setConfirmSave] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -115,6 +117,8 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
         memory_context: updated.memory_context ?? "",
         soul_context: updated.soul_context ?? "",
         rule_context: updated.rule_context ?? "",
+        telegram_bot_token: updated.telegram_bot_token ?? "",
+        telegram_webhook_secret: updated.telegram_webhook_secret ?? "",
       });
       setConfirmSave(false);
 
@@ -253,6 +257,32 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
         </div>
       </SectionCard>
 
+      <SectionCard title="Telegram Integration" description="Configure your Telegram bot credentials.">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-2 text-sm font-medium text-zinc-700">
+            <span>Bot Token</span>
+            <input
+              value={form.telegram_bot_token ?? ""}
+              onChange={(event) => setForm((current) => ({ ...current, telegram_bot_token: event.target.value }))}
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-normal"
+              placeholder="Enter Telegram bot token"
+              type="password"
+            />
+          </label>
+
+          <label className="space-y-2 text-sm font-medium text-zinc-700">
+            <span>Webhook Secret</span>
+            <input
+              value={form.telegram_webhook_secret ?? ""}
+              onChange={(event) => setForm((current) => ({ ...current, telegram_webhook_secret: event.target.value }))}
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3 text-sm font-normal"
+              placeholder="Enter webhook secret"
+              type="password"
+            />
+          </label>
+        </div>
+      </SectionCard>
+
       <SectionCard title="Context Fields" description="Large text fields for memory, soul, and rule contexts.">
         <div className="space-y-6">
           <ContextField
@@ -305,6 +335,8 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
                 memory_context: profile.memory_context ?? "",
                 soul_context: profile.soul_context ?? "",
                 rule_context: profile.rule_context ?? "",
+                telegram_bot_token: profile.telegram_bot_token ?? "",
+                telegram_webhook_secret: profile.telegram_webhook_secret ?? "",
               });
               setErrorMessage(null);
             }
