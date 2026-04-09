@@ -58,14 +58,12 @@ uv sync
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Frontend:
+Frontend (from repo root so the shared `.env` is loaded first):
 ```bash
-cd frontend
-npm install
 npm run dev
 ```
 
-The frontend now reads environment variables from the shared repo-root `.env` via its npm scripts. Do not keep a separate `frontend/.env.local` for normal development.
+If you want to run the frontend package directly, create a dedicated `frontend/.env.local` first. The `frontend/package.json` scripts no longer source `../.env`.
 
 ## Reset and Load Seed Data
 
