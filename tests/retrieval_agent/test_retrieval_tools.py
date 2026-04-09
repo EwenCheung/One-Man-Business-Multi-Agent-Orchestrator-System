@@ -19,6 +19,7 @@ from backend.tools.retrieval_tools import (
     get_product_catalog,
     get_customer_orders,
     get_customer_profile,
+    evaluate_discount_request,
     get_supplier_profile,
     get_supplier_contracts,
     get_product_stock,
@@ -73,7 +74,7 @@ def sample_ids(session):
 
 
 class TestRolePermissions:
-    def test_customer_has_exactly_4_tools(self):
+    def test_customer_has_exactly_5_tools(self):
         tools = get_tools_for_role("customer")
         assert len(tools) == 5
         names = {fn.__name__ for fn in tools}

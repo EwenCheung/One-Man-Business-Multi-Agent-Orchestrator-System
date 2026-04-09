@@ -21,7 +21,7 @@ Usage:
     uv run python tests/policy_agent/evaluate_retrieval.py
 
 Prerequisites:
-    1. PostgreSQL + pgvector running
+    1. Connection to Supabase established
     2. Policies ingested
     3. Eval dependencies installed (uv sync --extra eval)
     4. Ground truth dataset present (tests/policy_agent/test_cases/ground_truth_dataset.json)
@@ -52,36 +52,36 @@ MAX_K = max(K_VALUES)
 
 # ─── Metric functions ─────────────────────────────────────────────────────────
 
-def _precision_at_k(retrieved: list[dict], relevant: set[int], k: int) -> float:
+def _precision_at_k(retrieved: list[dict], relevant: set[str], k: int) -> float:
     top = retrieved[:k]
-    return sum(1 for c in top if c["chunk_id"] in relevant) / k if top else 0.0
+    return sum(1 for c in top if str(c["chunk_id"]) in relevant) / k if top else 0.0
 
 
-def _recall_at_k(retrieved: list[dict], relevant: set[int], k: int) -> float:
+def _recall_at_k(retrieved: list[dict], relevant: set[str], k: int) -> float:
     if not relevant:
         return 0.0
     top = retrieved[:k]
-    hits = sum(1 for c in top if c["chunk_id"] in relevant)
+    hits = sum(1 for c in top if str(c["chunk_id"]) in relevant)
     return hits / len(relevant)
 
 
-def _hit_rate_at_k(retrieved: list[dict], relevant: set[int], k: int) -> bool:
-    return any(c["chunk_id"] in relevant for c in retrieved[:k])
+def _hit_rate_at_k(retrieved: list[dict], relevant: set[str], k: int) -> bool:
+    return any(str(c["chunk_id"]) in relevant for c in retrieved[:k])
 
 
-def _mrr(retrieved: list[dict], relevant: set[int]) -> float:
+def _mrr(retrieved: list[dict], relevant: set[str]) -> float:
     for rank, chunk in enumerate(retrieved, start=1):
-        if chunk["chunk_id"] in relevant:
+        if str(chunk["chunk_id"]) in relevant:
             return 1.0 / rank
     return 0.0
 
 
-def _ndcg_at_k(retrieved: list[dict], relevant: set[int], k: int) -> float:
+def _ndcg_at_k(retrieved: list[dict], relevant: set[str], k: int) -> float:
     """Binary-relevance nDCG over the top-K retrieved list."""
     top = retrieved[:k]
     if not top:
         return 0.0
-    y_true = np.array([[1.0 if c["chunk_id"] in relevant else 0.0 for c in top]])
+    y_true = np.array([[1.0 if str(c["chunk_id"]) in relevant else 0.0 for c in top]])
     y_score = np.array([[c["similarity_score"] for c in top]])
     if y_true.sum() == 0:
         return 0.0
@@ -97,10 +97,10 @@ def _r(v: float, n: int = 4) -> float:
 def _evaluate_query(
     session,
     entry: dict,
-    chunk_ids_in_db: set[int],
+    chunk_ids_in_db: set[str],
 ) -> dict | None:
     """Run retrieval for one GT entry and return all metrics. Returns None if skipped."""
-    rel_ids = {cid for cid in entry["relevant_chunk_ids"] if cid in chunk_ids_in_db}
+    rel_ids = {str(cid) for cid in entry["relevant_chunk_ids"] if str(cid) in chunk_ids_in_db}
     if not rel_ids:
         return None  # chunk IDs from this entry are not in current DB
 
@@ -108,15 +108,15 @@ def _evaluate_query(
     retrieved = search_policy_chunks(session, entry["query"], top_k=MAX_K)
     latency_ms = (time.perf_counter() - t0) * 1000
 
-    rel_chunks = [c for c in retrieved if c["chunk_id"] in rel_ids]
-    non_rel_chunks = [c for c in retrieved if c["chunk_id"] not in rel_ids]
+    rel_chunks = [c for c in retrieved if str(c["chunk_id"]) in rel_ids]
+    non_rel_chunks = [c for c in retrieved if str(c["chunk_id"]) not in rel_ids]
 
     result = {
         "query_id": entry["query_id"],
         "category": entry["category"],
         "query_type": entry.get("query_type", ""),
         "n_relevant_in_db": len(rel_ids),
-        "retrieved_chunk_ids": [c["chunk_id"] for c in retrieved],
+        "retrieved_chunk_ids": [str(c["chunk_id"]) for c in retrieved],
         "latency_ms": _r(latency_ms, 1),
     }
 
@@ -405,8 +405,8 @@ def evaluate_retrieval() -> dict:
     from backend.db.models import PolicyChunk
     session = SessionLocal()
     try:
-        chunk_ids_in_db: set[int] = {
-            row[0] for row in session.query(PolicyChunk.id).all()
+        chunk_ids_in_db: set[str] = {
+            str(row[0]) for row in session.query(PolicyChunk.id).all()
         }
     finally:
         session.close()

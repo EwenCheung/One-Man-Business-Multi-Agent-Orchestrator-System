@@ -32,7 +32,7 @@ Usage:
     uv run python tests/policy_agent/evaluate_reranking.py --consistency-runs 3
 
 Prerequisites:
-    1. PostgreSQL + pgvector running
+    1. Connection to Supabase established
     2. Policies ingested
     3. Eval dependencies installed (uv sync --extra eval)
     4. Ground truth dataset present
@@ -64,10 +64,10 @@ GT_PATH = Path(__file__).parent / "test_cases" / "ground_truth_dataset.json"
 
 # ─── Metric helpers ───────────────────────────────────────────────────────────
 
-def _metrics_at_n(chunks: list[dict], relevant: set[int], n: int) -> dict:
+def _metrics_at_n(chunks: list[dict], relevant: set[str], n: int) -> dict:
     """Precision@N, Recall@N, MRR over the first N items of a ranked list."""
     top = chunks[:n]
-    hits = [1 if c["chunk_id"] in relevant else 0 for c in top]
+    hits = [1 if str(c["chunk_id"]) in relevant else 0 for c in top]
     precision = sum(hits) / n if top else 0.0
     recall = sum(hits) / len(relevant) if relevant else 0.0
     mrr = next((1.0 / (i + 1) for i, h in enumerate(hits) if h), 0.0)
@@ -97,11 +97,11 @@ def _r(v: float, n: int = 4) -> float:
 def _evaluate_query(
     session,
     entry: dict,
-    chunk_ids_in_db: set[int],
+    chunk_ids_in_db: set[str],
     top_k: int,
     top_n: int,
 ) -> dict | None:
-    rel_ids = {cid for cid in entry["relevant_chunk_ids"] if cid in chunk_ids_in_db}
+    rel_ids = {str(cid) for cid in entry["relevant_chunk_ids"] if str(cid) in chunk_ids_in_db}
     if not rel_ids:
         return None
 
@@ -157,8 +157,8 @@ def _evaluate_query(
         "spearman_rho": _r(rho) if rho is not None else None,
         "spearman_pval": _r(pval) if pval is not None else None,
         # Chunk IDs for traceability
-        "vector_order_ids": [c["chunk_id"] for c in top_k_chunks],
-        "reranked_ids": [c["chunk_id"] for c in reranked],
+        "vector_order_ids": [str(c["chunk_id"]) for c in top_k_chunks],
+        "reranked_ids": [str(c["chunk_id"]) for c in reranked],
         # Latency
         "latency_search_ms": _r(latency_search_ms, 1),
         "latency_rerank_ms": _r(latency_rerank_ms, 1),
@@ -171,7 +171,7 @@ def _evaluate_query(
 def _consistency_check(
     session,
     entries: list[dict],
-    chunk_ids_in_db: set[int],
+    chunk_ids_in_db: set[str],
     top_k: int,
     top_n: int,
     n_runs: int,
@@ -179,7 +179,7 @@ def _consistency_check(
 ) -> dict:
     """Run the reranker n_runs times on a small subset and check output stability."""
     subset = [e for e in entries
-              if any(cid in chunk_ids_in_db for cid in (e.get("relevant_chunk_ids") or []))]
+              if any(str(cid) in chunk_ids_in_db for cid in (e.get("relevant_chunk_ids") or []))]
     subset = subset[:n_queries]
 
     consistent_count = 0
@@ -192,11 +192,11 @@ def _consistency_check(
         if not top_k_chunks:
             continue
 
-        run_outputs: list[list[int]] = []
+        run_outputs: list[list[str]] = []
         for _ in range(n_runs):
             try:
                 reranked = rerank_chunks(query, top_k_chunks, top_n=top_n)
-                run_outputs.append([c["chunk_id"] for c in reranked])
+                run_outputs.append([str(c["chunk_id"]) for c in reranked])
             except Exception:
                 run_outputs.append([])
 
@@ -507,8 +507,8 @@ def evaluate_reranking(consistency_runs: int = 0) -> dict:
     # ── Chunk IDs currently in DB ──────────────────────────────────────────────
     session = SessionLocal()
     try:
-        chunk_ids_in_db: set[int] = {
-            row[0] for row in session.query(PolicyChunk.id).all()
+        chunk_ids_in_db: set[str] = {
+            str(row[0]) for row in session.query(PolicyChunk.id).all()
         }
     finally:
         session.close()
