@@ -21,6 +21,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -83,7 +84,13 @@ class Customer(Base):
     orders: Mapped[list["Order"]] = relationship(back_populates="customer")
 
     __table_args__ = (
-        Index("ix_customers_owner_telegram_user_id", "owner_id", "telegram_user_id", unique=True),
+        Index(
+            "ix_customers_owner_telegram_user_id",
+            "owner_id",
+            "telegram_user_id",
+            unique=True,
+            postgresql_where=text("telegram_user_id IS NOT NULL"),
+        ),
     )
 
 
