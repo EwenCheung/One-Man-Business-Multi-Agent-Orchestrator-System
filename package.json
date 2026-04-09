@@ -2,9 +2,9 @@
   "name": "one-man-business-multi-agent-orchestrator-system",
   "private": true,
   "scripts": {
-    "dev": "set -a && . ./.env && set +a && npm --prefix frontend run dev",
-    "build": "set -a && . ./.env && set +a && npm --prefix frontend run build",
-    "start": "set -a && . ./.env && set +a && npm --prefix frontend run start",
-    "lint": "set -a && . ./.env && set +a && npm --prefix frontend run lint"
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run start",
+    "lint": "npm --prefix frontend run lint"
   }
 }

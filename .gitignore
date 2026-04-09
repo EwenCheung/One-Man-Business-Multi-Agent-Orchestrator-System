@@ -32,6 +32,7 @@ yarn-error.log
 venv
 .env
 .env.local
+.env.local*
 build/
 dist/
 *.egg-info/

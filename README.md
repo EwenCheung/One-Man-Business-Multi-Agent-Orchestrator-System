@@ -65,6 +65,8 @@ npm install
 npm run dev
 ```
 
+The frontend now reads environment variables from the shared repo-root `.env` via its npm scripts. Do not keep a separate `frontend/.env.local` for normal development.
+
 ## Reset and Load Seed Data
 
 To fully wipe business data and load the current 2-owner seed set:
