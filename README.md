@@ -34,14 +34,13 @@ docker compose up -d --build
 Services:
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:3000`
-- PostgreSQL: `localhost:5432`
 
 Docker startup does **not** automatically reset or reseed the database.
 
 Useful commands:
 ```bash
 # Logs
-docker compose logs -f backend frontend db
+docker compose logs -f backend frontend
 
 # Reset and reseed Supabase manually
 docker compose exec backend uv run python backend/db/reset_and_seed_supabase.py
