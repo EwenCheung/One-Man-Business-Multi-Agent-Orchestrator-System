@@ -1,5 +1,6 @@
 import logging
 import time
+from uuid import UUID
 from typing import Any
 
 import httpx
@@ -19,15 +20,13 @@ def extract_telegram_chat_id(sender_external_id: str) -> str | None:
 def _get_bot_token(owner_id: str) -> str | None:
     from backend.db.engine import SessionLocal
 
-    session = SessionLocal()
     try:
-        from uuid import UUID
-
         owner_uuid = UUID(owner_id)
     except (ValueError, TypeError):
         logger.error(f"Invalid owner_id: {owner_id}")
         return None
 
+    session = SessionLocal()
     try:
         profile = session.query(Profile).filter_by(id=owner_uuid).first()
         if not profile:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import re
 import uuid
 import logging
@@ -14,6 +15,14 @@ from backend.db.models import Customer, ExternalIdentity, Investor, Partner, Sup
 from backend.services.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_owner_uuid(owner_id: str | None) -> uuid.UUID:
+    candidate_owner_id = owner_id or settings.OWNER_ID
+    try:
+        return uuid.UUID(str(candidate_owner_id))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid owner_id: {candidate_owner_id}") from exc
 
 
 def _canonical_phone(value: str) -> str:
@@ -205,6 +214,9 @@ def _create_supabase_auth_user(
     normalized_external_id: str,
     external_type: str,
 ) -> str | None:
+    if not settings.AUTO_CREATE_SUPABASE_AUTH_USERS:
+        return None
+
     supabase = get_supabase_client()
     if not supabase:
         logger.warning("Supabase client not available, skipping auth user creation")
@@ -212,23 +224,19 @@ def _create_supabase_auth_user(
 
     try:
         user_params: AdminUserAttributes = {
-            "password": "Abcd@1234",
+            "password": secrets.token_urlsafe(32),
             "user_metadata": {"role": "customer"},
         }
 
         if external_type == "phone":
             user_params["phone"] = normalized_external_id
-            user_params["phone_confirm"] = True
         elif external_type == "email":
             user_params["email"] = normalized_external_id
-            user_params["email_confirm"] = True
         elif external_type == "telegram_id":
             clean_id = normalized_external_id.replace("tg:", "")
             user_params["email"] = f"{clean_id}@telegram.local"
-            user_params["email_confirm"] = True
         else:
             user_params["email"] = f"{normalized_external_id}@telegram.local"
-            user_params["email_confirm"] = True
 
         response = supabase.auth.admin.create_user(user_params)
 
@@ -253,7 +261,7 @@ def resolve_or_create_sender(
     telegram_chat_id: str | None = None,
     owner_id: str | None = None,
 ) -> dict[str, str]:
-    owner_uuid = uuid.UUID(owner_id or settings.OWNER_ID)
+    owner_uuid = _resolve_owner_uuid(owner_id)
     external_type = _detect_external_type(external_sender_id)
     normalized_external_id = _normalize_external_id(external_sender_id, external_type)
 

@@ -8,6 +8,7 @@ Endpoint:
 """
 
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -24,10 +25,13 @@ from backend.services.identity_resolution import resolve_or_create_sender
 from backend.integrations.telegram_sender import send_telegram_chat_action, send_telegram_message
 from backend.models import IncomingMessage
 
+logger = logging.getLogger(__name__)
 telegram_router = APIRouter(tags=["telegram"])
 _PROCESSED_UPDATE_IDS: dict[str, float] = {}
 _CHAT_LOCKS: dict[str, asyncio.Lock] = {}
+_CHAT_LOCK_LAST_USED: dict[str, float] = {}
 _DEDUP_TTL_SECONDS = 120.0
+_CHAT_LOCK_TTL_SECONDS = 900.0
 START_REPLY_TEXT = (
     "Hi! I’m the shop assistant. You can ask about products, pricing, stock, orders, or support, "
     "and I’ll help you here on Telegram."
@@ -38,7 +42,7 @@ def _prune_processed_updates() -> None:
     cutoff = time.time() - _DEDUP_TTL_SECONDS
     stale_keys = [key for key, seen_at in _PROCESSED_UPDATE_IDS.items() if seen_at < cutoff]
     for key in stale_keys:
-        _PROCESSED_UPDATE_IDS.pop(key, None)
+        _ = _PROCESSED_UPDATE_IDS.pop(key, None)
 
 
 def _remember_update(update_id: str) -> bool:
@@ -51,13 +55,29 @@ def _remember_update(update_id: str) -> bool:
     return True
 
 
+def _prune_chat_locks() -> None:
+    cutoff = time.time() - _CHAT_LOCK_TTL_SECONDS
+    stale_chat_ids = [
+        chat_id
+        for chat_id, last_seen in _CHAT_LOCK_LAST_USED.items()
+        if last_seen < cutoff
+        and (existing_lock := _CHAT_LOCKS.get(chat_id)) is not None
+        and not existing_lock.locked()
+    ]
+    for chat_id in stale_chat_ids:
+        _ = _CHAT_LOCKS.pop(chat_id, None)
+        _ = _CHAT_LOCK_LAST_USED.pop(chat_id, None)
+
+
 def _chat_lock(chat_id: str | None) -> asyncio.Lock | None:
     if not chat_id:
         return None
+    _prune_chat_locks()
     lock = _CHAT_LOCKS.get(chat_id)
     if lock is None:
         lock = asyncio.Lock()
         _CHAT_LOCKS[chat_id] = lock
+    _CHAT_LOCK_LAST_USED[chat_id] = time.time()
     return lock
 
 
@@ -191,7 +211,7 @@ def _handle_start_message(incoming: IncomingMessage) -> None:
             )
     except Exception as e:
         session.rollback()
-        print(f"Error handling Telegram /start: {e}")
+        logger.error("Error handling Telegram /start: %s", e, exc_info=True)
     finally:
         session.close()
 
@@ -204,23 +224,27 @@ async def telegram_webhook(request: Request):
     Returns 200 OK immediately to prevent Telegram retries while
     processing happens in the background.
     """
-    session = SessionLocal()
-    try:
-        provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-        profile = None
-        if provided_secret:
+    provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    require_secret = settings.APP_ENV.lower() != "development"
+
+    if require_secret and not provided_secret:
+        raise HTTPException(status_code=403, detail="Missing Telegram webhook secret")
+
+    if not provided_secret:
+        resolved_owner_id = settings.OWNER_ID
+    else:
+        session = SessionLocal()
+        try:
             profile = (
                 session.query(Profile).filter_by(telegram_webhook_secret=provided_secret).first()
             )
-        expected_secret = profile.telegram_webhook_secret if profile else None
-        resolved_owner_id = str(profile.id) if profile else settings.OWNER_ID
-    finally:
-        session.close()
+        finally:
+            session.close()
 
-    if expected_secret and provided_secret != expected_secret:
-        raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
-    if provided_secret and not expected_secret:
-        raise HTTPException(status_code=403, detail="Unknown Telegram webhook secret")
+        if not profile:
+            raise HTTPException(status_code=403, detail="Unknown Telegram webhook secret")
+
+        resolved_owner_id = str(profile.id)
 
     try:
         payload = await request.json()
@@ -262,14 +286,14 @@ async def _process_telegram_message(incoming: IncomingMessage) -> None:
     Runs in background to avoid blocking webhook response.
     """
     try:
-        from backend.api.router import receive_message
+        from backend.api.router import process_incoming_message
 
         lock = _chat_lock(incoming.telegram_chat_id)
         if lock is None:
-            _ = await receive_message(incoming)
+            _ = await process_incoming_message(incoming, trusted_owner_id=incoming.owner_id)
             return
 
         async with lock:
-            _ = await receive_message(incoming)
+            _ = await process_incoming_message(incoming, trusted_owner_id=incoming.owner_id)
     except Exception as e:
-        print(f"Error processing Telegram message: {e}")
+        logger.error("Error processing Telegram message: %s", e, exc_info=True)
