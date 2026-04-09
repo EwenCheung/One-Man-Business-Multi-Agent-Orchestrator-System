@@ -1,4 +1,5 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -8,15 +9,6 @@ const stakeholderTableByRole = {
   partner: "partners",
   investor: "investors",
 } as const;
-
-function getBackendBaseUrl() {
-  return (
-    process.env.BACKEND_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    process.env.NEXT_PUBLIC_BACKEND_URL ??
-    "http://localhost:8000"
-  );
-}
 
 export async function POST(request: NextRequest) {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
@@ -81,9 +73,9 @@ export async function POST(request: NextRequest) {
 
   const response = await fetch(`${getBackendBaseUrl()}/api/v1/messages/incoming`, {
     method: "POST",
-    headers: {
+    headers: getInternalBackendHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(payload),
     cache: "no-store",
   });

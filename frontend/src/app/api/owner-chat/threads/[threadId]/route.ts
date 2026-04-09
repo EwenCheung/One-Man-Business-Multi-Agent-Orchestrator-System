@@ -1,14 +1,6 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
 import { NextRequest, NextResponse } from "next/server";
-
-function getBackendBaseUrl() {
-  return (
-    process.env.BACKEND_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    process.env.NEXT_PUBLIC_BACKEND_URL ??
-    "http://localhost:8000"
-  );
-}
 
 type RouteContext = {
   params: Promise<{ threadId: string }>;
@@ -26,9 +18,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
   const response = await fetch(backendUrl, {
     method: "GET",
-    headers: {
+    headers: getInternalBackendHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     cache: "no-store",
   });
 
@@ -56,9 +48,9 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
   const response = await fetch(backendUrl, {
     method: "DELETE",
-    headers: {
+    headers: getInternalBackendHeaders({
       "Content-Type": "application/json",
-    },
+    }),
   });
 
   if (!response.ok) {
