@@ -60,34 +60,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Out of stock" }, { status: 400 });
   }
 
-  const { error: updateError } = await admin
-    .from("products")
-    .update({ stock_number: product.stock_number - quantity })
-    .eq("id", productId);
-
-  if (updateError) {
-    return NextResponse.json({ error: "Failed to update stock" }, { status: 500 });
-  }
-
-  const totalPrice = product.selling_price * quantity;
   const orderDate = new Date().toISOString().split("T")[0];
-  const { error: insertError } = await admin
-    .from("orders")
-    .insert({
-      id: randomUUID(),
-      owner_id: product.owner_id,
-      customer_id: customerId,
-      product_id: productId,
-      quantity,
-      total_price: totalPrice,
-      order_date: orderDate,
-      status: "paid",
-      channel: "website"
-    });
+  const orderId = randomUUID();
+  const { data: purchaseResult, error: purchaseError } = await admin.rpc("purchase_product_atomic", {
+    p_owner_id: product.owner_id,
+    p_customer_id: customerId,
+    p_product_id: productId,
+    p_quantity: quantity,
+    p_order_id: orderId,
+    p_order_date: orderDate,
+    p_channel: "website",
+  });
 
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message || "Failed to create order" }, { status: 500 });
+  if (purchaseError) {
+    const message = purchaseError.message || "Failed to create order";
+    if (message.includes("OUT_OF_STOCK_OR_PRODUCT_NOT_FOUND")) {
+      return NextResponse.json({ error: "Out of stock" }, { status: 400 });
+    }
+    if (message.includes("CUSTOMER_NOT_FOUND")) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+    if (message.includes("INVALID_QUANTITY")) {
+      return NextResponse.json({ error: "Invalid purchase request" }, { status: 400 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, orderId, purchase: purchaseResult });
 }
