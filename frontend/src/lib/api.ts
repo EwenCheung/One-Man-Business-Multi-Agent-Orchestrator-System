@@ -468,6 +468,9 @@ export async function getDailyDigestPayload() {
   const today = startOfUtcToday();
   const todayIsoDate = today.toISOString().slice(0, 10);
   const todayIso = today.toISOString();
+  const ordersCutoffDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 11, 1))
+    .toISOString()
+    .slice(0, 10);
 
   const months: { key: string; label: string }[] = [];
   for (let offset = 11; offset >= 0; offset -= 1) {
@@ -481,7 +484,8 @@ export async function getDailyDigestPayload() {
     supabase
       .from("orders")
       .select("order_date, total_price, status")
-      .eq("owner_id", user.id),
+      .eq("owner_id", user.id)
+      .gte("order_date", ordersCutoffDate),
     supabase
       .from("messages")
       .select("sender_name, sender_role, content, created_at")

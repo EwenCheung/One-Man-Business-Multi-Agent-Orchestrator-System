@@ -134,17 +134,6 @@ export async function DELETE(
     return NextResponse.json({ error: dependencyError }, { status: 409 });
   }
 
-  const identityDelete = await auth.supabase
-    .from("external_identities")
-    .delete()
-    .eq("owner_id", auth.user.id)
-    .eq("entity_role", role.slice(0, -1))
-    .eq("entity_id", stakeholderId);
-
-  if (identityDelete.error) {
-    return NextResponse.json({ error: identityDelete.error.message }, { status: 400 });
-  }
-
   const { error } = await auth.supabase
     .from(table)
     .delete()
@@ -153,6 +142,23 @@ export async function DELETE(
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  const identityDelete = await auth.supabase
+    .from("external_identities")
+    .delete()
+    .eq("owner_id", auth.user.id)
+    .eq("entity_role", role.slice(0, -1))
+    .eq("entity_id", stakeholderId);
+
+  if (identityDelete.error) {
+    return NextResponse.json(
+      {
+        ok: true,
+        warning: "Stakeholder deleted, but external identity cleanup failed.",
+      },
+      { status: 200 }
+    );
   }
 
   return NextResponse.json({ ok: true });
