@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
+function normalizePhoneIdentifier(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits ? `+${digits}` : "";
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -23,7 +28,7 @@ export default function LoginPage() {
     const isPhone = /^\+?[0-9\s\-]+$/.test(trimmedId);
 
     if (isPhone) {
-      credentials = { phone: trimmedId.replace(/[\s\-]/g, ""), password };
+      credentials = { phone: normalizePhoneIdentifier(trimmedId), password };
     } else {
       const cleanId = trimmedId.startsWith('@') ? trimmedId.slice(1) : trimmedId;
       if (cleanId.includes('@')) {
