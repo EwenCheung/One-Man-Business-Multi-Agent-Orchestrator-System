@@ -19,12 +19,19 @@ services:
       - AUTO_CREATE_SUPABASE_AUTH_USERS=${AUTO_CREATE_SUPABASE_AUTH_USERS}
 
   frontend:
-    build: frontend/
+    build:
+      context: frontend/
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY}
     container_name: multi-agent-frontend
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
+      - BACKEND_URL=http://backend:8000
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
