@@ -1,4 +1,5 @@
 import { getAuthenticatedClient, getPendingApprovals } from "@/lib/api";
+import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
 import { NextResponse } from "next/server";
 
 type ApprovalListItem = {
@@ -16,15 +17,6 @@ type ApprovalPayload = {
   proposal_id?: string | null;
   proposal_type?: string | null;
 };
-
-function getBackendBaseUrl() {
-  return (
-    process.env.BACKEND_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    process.env.NEXT_PUBLIC_BACKEND_URL ??
-    "http://localhost:8000"
-  );
-}
 
 function getApprovalPath(action: ApprovalAction, item: ApprovalPayload) {
   const proposalType = (item.proposal_type ?? "").toLowerCase();
@@ -78,9 +70,9 @@ export async function POST(request: Request) {
 
   const response = await fetch(`${getBackendBaseUrl()}${path}`, {
     method: "POST",
-    headers: {
+    headers: getInternalBackendHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     cache: "no-store",
   });
 
