@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # ── Application ───────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     APP_ENV: str = "development"
+    INTERNAL_API_KEY: str = ""
+    AUTO_CREATE_SUPABASE_AUTH_USERS: bool = False
     MAX_REPLAN_CYCLES: int = 2
     MAX_PARALLEL_TASKS: int = 4
     BACKEND_PUBLIC_URL: str = ""
