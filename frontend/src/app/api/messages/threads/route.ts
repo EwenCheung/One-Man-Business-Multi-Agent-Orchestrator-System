@@ -1,5 +1,5 @@
 import { getAuthenticatedClient } from "@/lib/api";
-import { getBackendBaseUrl } from "@/lib/backend";
+import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
@@ -23,9 +23,9 @@ export async function GET(request: NextRequest) {
 
   const response = await fetch(backendUrl, {
     method: "GET",
-    headers: {
+    headers: getInternalBackendHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     cache: "no-store",
   });
 
