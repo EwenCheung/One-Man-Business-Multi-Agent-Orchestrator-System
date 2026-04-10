@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedClient } from "@/lib/api";
+import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { randomUUID } from "crypto";
 
@@ -62,29 +63,35 @@ export async function POST(req: Request) {
 
   const orderDate = new Date().toISOString().split("T")[0];
   const orderId = randomUUID();
-  const { data: purchaseResult, error: purchaseError } = await admin.rpc("purchase_product_atomic", {
-    p_owner_id: product.owner_id,
-    p_customer_id: customerId,
-    p_product_id: productId,
-    p_quantity: quantity,
-    p_order_id: orderId,
-    p_order_date: orderDate,
-    p_channel: "website",
+  const response = await fetch(`${getBackendBaseUrl()}/api/v1/orders/purchase`, {
+    method: "POST",
+    headers: getInternalBackendHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      owner_id: product.owner_id,
+      customer_id: customerId,
+      product_id: productId,
+      quantity,
+      order_id: orderId,
+      order_date: orderDate,
+      channel: "website",
+    }),
   });
 
-  if (purchaseError) {
-    const message = purchaseError.message || "Failed to create order";
-    if (message.includes("OUT_OF_STOCK_OR_PRODUCT_NOT_FOUND")) {
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = payload?.error || payload?.detail || "Failed to create order";
+    if (message.includes("Out of stock")) {
       return NextResponse.json({ error: "Out of stock" }, { status: 400 });
     }
-    if (message.includes("CUSTOMER_NOT_FOUND")) {
+    if (message.includes("Customer not found")) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
-    if (message.includes("INVALID_QUANTITY")) {
+    if (message.includes("Invalid purchase request")) {
       return NextResponse.json({ error: "Invalid purchase request" }, { status: 400 });
     }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true, orderId, purchase: purchaseResult });
+  return NextResponse.json({ success: true, orderId, purchase: payload?.purchase ?? null });
 }
