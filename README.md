@@ -21,8 +21,11 @@ Required environment values for the current setup:
 - `SUPABASE_DB_URL` — pooled Postgres connection string
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `INTERNAL_API_KEY` — required by frontend→backend internal routes and protected backend endpoints in production
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `BACKEND_PUBLIC_URL` — public HTTPS backend URL used for Telegram webhook registration
+
+For Docker/Compose production-style builds, the frontend also needs its `NEXT_PUBLIC_*` values present at build time because they are baked into the Next.js bundle.
 
 ## Start The Project
 
