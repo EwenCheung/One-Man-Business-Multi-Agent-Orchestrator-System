@@ -7,6 +7,7 @@ Usage:
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 
 from dotenv import load_dotenv
 
@@ -72,6 +73,16 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip_wrapping_quotes(cls, value):
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if len(trimmed) >= 2 and trimmed[0] == trimmed[-1] and trimmed[0] in {'"', "'"}:
+                return trimmed[1:-1]
+            return trimmed
+        return value
 
     model_config = {
         "env_file": ".env",

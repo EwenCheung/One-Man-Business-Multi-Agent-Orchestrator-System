@@ -27,11 +27,16 @@ type PurchaseNotice = {
   message: string;
 };
 
+type ProductSelection = {
+  product: CustomerProductRow;
+  quantity: number;
+};
+
 export default function CustomerClient({ customerId, initialOrders, products }: { customerId?: string, initialOrders: CustomerOrderRow[], products: CustomerProductRow[] }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("orders");
   const [buying, setBuying] = useState<string | null>(null);
-  const [productToConfirm, setProductToConfirm] = useState<CustomerProductRow | null>(null);
+  const [productToConfirm, setProductToConfirm] = useState<ProductSelection | null>(null);
   const [notice, setNotice] = useState<PurchaseNotice | null>(null);
 
   function handleBuy(product: CustomerProductRow) {
@@ -40,7 +45,7 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
       return;
     }
     setNotice(null);
-    setProductToConfirm(product);
+    setProductToConfirm({ product, quantity: 1 });
   }
 
   async function confirmPurchase() {
@@ -48,20 +53,24 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
       return;
     }
 
-    setBuying(productToConfirm.id);
+    setBuying(productToConfirm.product.id);
     setNotice(null);
     
     try {
       const res = await fetch("/api/orders/buy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId: productToConfirm.id, customerId, quantity: 1 })
+        body: JSON.stringify({
+          productId: productToConfirm.product.id,
+          customerId,
+          quantity: productToConfirm.quantity,
+        })
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.error || "Purchase failed");
       setNotice({
         kind: "success",
-        message: `${productToConfirm.name} purchased successfully. Your order has been placed.`,
+        message: `${productToConfirm.quantity} x ${productToConfirm.product.name} purchased successfully. Your order has been placed.`,
       });
       setProductToConfirm(null);
       router.refresh();
@@ -184,22 +193,46 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
 
       <ConfirmActionDialog
         open={Boolean(productToConfirm)}
-        title={productToConfirm ? `Buy ${productToConfirm.name}?` : "Confirm purchase"}
+        title={productToConfirm ? `Buy ${productToConfirm.product.name}?` : "Confirm purchase"}
         description={
           productToConfirm
-            ? `This will place an order for 1 item at $${productToConfirm.selling_price} and reduce available stock from ${productToConfirm.stock_number}.`
+            ? `Choose quantity and place your order. Unit price is $${productToConfirm.product.selling_price} with ${productToConfirm.product.stock_number} in stock.`
             : ""
         }
         confirmLabel="Place order"
         cancelLabel="Keep browsing"
-        loading={Boolean(productToConfirm && buying === productToConfirm.id)}
+        loading={Boolean(productToConfirm && buying === productToConfirm.product.id)}
         onConfirmAction={confirmPurchase}
         onCancelAction={() => {
           if (!buying) {
             setProductToConfirm(null);
           }
         }}
-      />
+      >
+        {productToConfirm ? (
+          <div className="mb-4 flex items-center gap-3">
+            <label htmlFor="purchase-qty" className="text-sm font-medium text-zinc-700">
+              Quantity
+            </label>
+            <input
+              id="purchase-qty"
+              type="number"
+              min={1}
+              max={productToConfirm.product.stock_number}
+              value={productToConfirm.quantity}
+              onChange={(event) => {
+                const raw = Number(event.target.value);
+                const safe = Number.isFinite(raw) ? Math.floor(raw) : 1;
+                const quantity = Math.max(1, Math.min(productToConfirm.product.stock_number, safe));
+                setProductToConfirm({ ...productToConfirm, quantity });
+              }}
+              className="w-28 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+              disabled={Boolean(buying)}
+            />
+            <p className="text-xs text-zinc-500">Total: ${(productToConfirm.product.selling_price * productToConfirm.quantity).toFixed(2)}</p>
+          </div>
+        ) : null}
+      </ConfirmActionDialog>
     </div>
   );
 }

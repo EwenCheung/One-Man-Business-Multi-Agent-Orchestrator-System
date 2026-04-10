@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 type Props = {
   open: boolean;
   title: string;
@@ -7,6 +9,7 @@ type Props = {
   confirmLabel: string;
   cancelLabel?: string;
   loading?: boolean;
+  children?: ReactNode;
   onConfirmAction: () => void;
   onCancelAction: () => void;
 };
@@ -18,6 +21,7 @@ export default function ConfirmActionDialog({
   confirmLabel,
   cancelLabel = "Cancel",
   loading,
+  children,
   onConfirmAction,
   onCancelAction,
 }: Props) {
@@ -30,6 +34,7 @@ export default function ConfirmActionDialog({
       <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl">
         <h2 className="text-xl font-semibold text-zinc-900">{title}</h2>
         <p className="mt-3 text-sm leading-6 text-zinc-600">{description}</p>
+        {children ? <div className="mt-4">{children}</div> : null}
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             type="button"
