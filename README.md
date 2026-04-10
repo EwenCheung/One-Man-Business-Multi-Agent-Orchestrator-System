@@ -21,8 +21,11 @@ Required environment values for the current setup:
 - `SUPABASE_DB_URL` — pooled Postgres connection string
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `INTERNAL_API_KEY` — required by frontend→backend internal routes and protected backend endpoints in production
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `BACKEND_PUBLIC_URL` — public HTTPS backend URL used for Telegram webhook registration
+
+For Docker/Compose production-style builds, the frontend also needs its `NEXT_PUBLIC_*` values present at build time because they are baked into the Next.js bundle.
 
 ## Start The Project
 
@@ -34,14 +37,13 @@ docker compose up -d --build
 Services:
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:3000`
-- PostgreSQL: `localhost:5432`
 
 Docker startup does **not** automatically reset or reseed the database.
 
 Useful commands:
 ```bash
 # Logs
-docker compose logs -f backend frontend db
+docker compose logs -f backend frontend
 
 # Reset and reseed Supabase manually
 docker compose exec backend uv run python backend/db/reset_and_seed_supabase.py
@@ -58,14 +60,12 @@ uv sync
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Frontend:
+Frontend (from repo root so the shared `.env` is loaded first):
 ```bash
-cd frontend
-npm install
 npm run dev
 ```
 
-The frontend now reads environment variables from the shared repo-root `.env` via its npm scripts. Do not keep a separate `frontend/.env.local` for normal development.
+If you want to run the frontend package directly, create a dedicated `frontend/.env.local` first. The `frontend/package.json` scripts no longer source `../.env`.
 
 ## Reset and Load Seed Data
 

@@ -15,23 +15,50 @@ Two-stage retrieval pipeline for the policy agent:
     topically close but contextually less useful chunks.
 """
 
+import logging
+
 from langchain_openai import OpenAIEmbeddings
+from pydantic import SecretStr
 from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.db.models import PolicyChunk
 
+logger = logging.getLogger(__name__)
 
-# ─── Stage 2 model — loaded once at import time ──────────────────────────────
 
-from sentence_transformers import CrossEncoder
+# ─── Stage 2 model — loaded lazily so lightweight runtimes can skip it ───────
 
-if settings.HF_TOKEN:
-    from huggingface_hub import login
-    login(token=settings.HF_TOKEN)
+_reranker = None
+_reranker_load_attempted = False
 
-_reranker = CrossEncoder(settings.RERANKER_MODEL)
+
+def _get_reranker():
+    global _reranker, _reranker_load_attempted
+
+    if _reranker_load_attempted:
+        return _reranker
+
+    _reranker_load_attempted = True
+
+    try:
+        if settings.HF_TOKEN:
+            from huggingface_hub import login
+
+            login(token=settings.HF_TOKEN)
+
+        from sentence_transformers import CrossEncoder
+
+        _reranker = CrossEncoder(settings.RERANKER_MODEL)
+    except Exception as exc:
+        logger.warning(
+            "Policy reranker unavailable; falling back to retrieval ordering: %s",
+            exc,
+        )
+        _reranker = None
+
+    return _reranker
 
 
 _CATEGORY_HINTS = {
@@ -121,7 +148,8 @@ def search_policy_chunks(
     k = top_k or settings.POLICY_TOP_K
 
     embedder = OpenAIEmbeddings(
-        model=settings.EMBEDDING_MODEL, api_key=settings.OPENAI_API_KEY
+        model=settings.EMBEDDING_MODEL,
+        api_key=SecretStr(settings.OPENAI_API_KEY),
     )
     query_vector = embedder.embed_query(query)
 
@@ -263,8 +291,12 @@ def rerank_chunks(
     if len(chunks) <= n:
         return chunks
 
+    reranker = _get_reranker()
+    if reranker is None:
+        return chunks[:n]
+
     pairs = [(query, str(c["chunk_text"])) for c in chunks]
-    scores = _reranker.predict(pairs)
+    scores = reranker.predict(pairs)
 
     ranked = sorted(range(len(chunks)), key=lambda i: scores[i], reverse=True)
     return [chunks[i] for i in ranked[:n]]

@@ -65,13 +65,15 @@ def _validated_owner_id(owner_id: str | None) -> str:
 
 
 @api_router.post("/memory/approve/{proposal_id}")
-def approve_memory_endpoint(proposal_id: str):
+def approve_memory_endpoint(proposal_id: str, request: Request):
+    _require_internal_request(request)
     approve_memory(proposal_id)
     return {"ok": True}
 
 
 @api_router.post("/memory/reject/{proposal_id}")
-def reject_memory_endpoint(proposal_id: str):
+def reject_memory_endpoint(proposal_id: str, request: Request):
+    _require_internal_request(request)
     reject_memory(proposal_id)
     return {"ok": True}
 
@@ -80,21 +82,27 @@ def reject_memory_endpoint(proposal_id: str):
 
 
 @api_router.post("/replies/approve/{held_reply_id}")
-def approve_reply_endpoint(held_reply_id: str):
+def approve_reply_endpoint(held_reply_id: str, request: Request):
+    _require_internal_request(request)
     result = approve_reply(held_reply_id)
     return result
 
 
 @api_router.post("/replies/reject/{held_reply_id}")
-def reject_reply_endpoint(held_reply_id: str, reason: str = ""):
+def reject_reply_endpoint(held_reply_id: str, request: Request, reason: str = ""):
+    _require_internal_request(request)
     result = reject_reply(held_reply_id, reason)
     return result
 
 
 @api_router.post("/replies/review/{review_record_id}")
 def review_reply_record_endpoint(
-    review_record_id: str, review_label: str, reviewer_reason: str = ""
+    review_record_id: str,
+    request: Request,
+    review_label: str,
+    reviewer_reason: str = "",
 ):
+    _require_internal_request(request)
     return review_reply_record(review_record_id, review_label, reviewer_reason)
 
 
@@ -103,10 +111,9 @@ def review_reply_record_endpoint(
 
 @api_router.post("/messages/incoming", response_model=PipelineResult)
 async def receive_message(incoming: IncomingMessage, request: Request):
-    trusted_owner_id = settings.OWNER_ID
-    if incoming.owner_id is not None:
-        _require_internal_request(request)
-        trusted_owner_id = incoming.owner_id
+    _require_internal_request(request)
+
+    trusted_owner_id = incoming.owner_id or settings.OWNER_ID
 
     return await process_incoming_message(incoming, trusted_owner_id=trusted_owner_id)
 
@@ -259,7 +266,8 @@ async def process_incoming_message(
 
 
 @api_router.get("/replies/review-records")
-async def get_reply_review_records(limit: int = 50):
+async def get_reply_review_records(request: Request, limit: int = 50):
+    _require_internal_request(request)
     from backend.db.engine import SessionLocal
     from backend.db.models import ReplyReviewRecord
 
@@ -298,9 +306,11 @@ async def get_reply_review_records(limit: int = 50):
 
 @api_router.get("/messages/threads")
 async def get_external_sender_threads(
+    request: Request,
     sender_roles: str | None = None,
     limit: int = 100,
 ):
+    _require_internal_request(request)
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
     from backend.db.engine import SessionLocal
@@ -318,7 +328,8 @@ async def get_external_sender_threads(
 
 
 @api_router.get("/messages/threads/{thread_id}")
-async def get_external_sender_thread(thread_id: str):
+async def get_external_sender_thread(thread_id: str, request: Request):
+    _require_internal_request(request)
     from backend.db.engine import SessionLocal
 
     session = SessionLocal()
@@ -336,8 +347,8 @@ async def get_external_sender_thread(thread_id: str):
 
 
 @api_router.get("/messages/{thread_id}")
-async def get_thread_history(thread_id: str):
-    return await get_external_sender_thread(thread_id)
+async def get_thread_history(thread_id: str, request: Request):
+    return await get_external_sender_thread(thread_id, request)
 
 
 @api_router.get("/owner-chat/threads")
@@ -402,8 +413,9 @@ async def delete_owner_chat_thread_endpoint(
 
 
 @api_router.get("/approvals/pending")
-async def get_pending_approvals():
+async def get_pending_approvals(request: Request):
     """Fetch all active alerts requiring owner approval."""
+    _require_internal_request(request)
     from backend.db.engine import SessionLocal
     from backend.db.models import PendingApproval
 
@@ -437,8 +449,9 @@ async def get_pending_approvals():
 
 
 @api_router.get("/dashboard/summary")
-async def get_dashboard_summary():
+async def get_dashboard_summary(request: Request):
     """Dashboard summary for the owner."""
+    _require_internal_request(request)
     from backend.db.engine import SessionLocal
     from backend.db.models import PendingApproval, Message, MemoryUpdateProposal
     from sqlalchemy import func

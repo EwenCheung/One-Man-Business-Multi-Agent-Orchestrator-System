@@ -1,5 +1,6 @@
 "use client";
 
+import ConfirmActionDialog from "@/components/confirm-action-dialog";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -21,30 +22,55 @@ type CustomerProductRow = {
   category: string | null;
 };
 
+type PurchaseNotice = {
+  kind: "success" | "error";
+  message: string;
+};
+
 export default function CustomerClient({ customerId, initialOrders, products }: { customerId?: string, initialOrders: CustomerOrderRow[], products: CustomerProductRow[] }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("orders");
   const [buying, setBuying] = useState<string | null>(null);
+  const [productToConfirm, setProductToConfirm] = useState<CustomerProductRow | null>(null);
+  const [notice, setNotice] = useState<PurchaseNotice | null>(null);
 
-  async function handleBuy(productId: string, productName: string) {
-    if (!customerId) return alert("Customer record not found.");
-    const confirmed = window.confirm(`Confirm purchase for ${productName}? This will place the order and deduct stock immediately.`);
-    if (!confirmed) return;
-    setBuying(productId);
+  function handleBuy(product: CustomerProductRow) {
+    if (!customerId) {
+      setNotice({ kind: "error", message: "Customer record not found." });
+      return;
+    }
+    setNotice(null);
+    setProductToConfirm(product);
+  }
+
+  async function confirmPurchase() {
+    if (!customerId || !productToConfirm) {
+      return;
+    }
+
+    setBuying(productToConfirm.id);
+    setNotice(null);
     
     try {
       const res = await fetch("/api/orders/buy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, customerId, quantity: 1 })
+        body: JSON.stringify({ productId: productToConfirm.id, customerId, quantity: 1 })
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.error || "Purchase failed");
-      alert("Purchase successful! Your order has been placed.");
+      setNotice({
+        kind: "success",
+        message: `${productToConfirm.name} purchased successfully. Your order has been placed.`,
+      });
+      setProductToConfirm(null);
       router.refresh();
       setActiveTab("orders");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Purchase failed");
+      setNotice({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Purchase failed",
+      });
     } finally {
       setBuying(null);
     }
@@ -57,9 +83,22 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
         <p className="mt-2 text-zinc-500">Manage your orders and browse the store.</p>
       </div>
 
+      {notice ? (
+        <div
+          className={`rounded-2xl border px-4 py-3 text-sm ${
+            notice.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          {notice.message}
+        </div>
+      ) : null}
+
       <div className="border-b border-zinc-200">
         <nav className="-mb-px flex space-x-8">
           <button
+            type="button"
             onClick={() => setActiveTab("orders")}
             className={`whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium ${
               activeTab === "orders" ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700"
@@ -68,6 +107,7 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
             My Orders
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("store")}
             className={`whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium ${
               activeTab === "store" ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700"
@@ -91,10 +131,10 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {initialOrders.map((o, i) => {
+              {initialOrders.map((o) => {
                 const product = Array.isArray(o.products) ? o.products[0] : o.products;
                 return (
-                  <tr key={i} className="hover:bg-zinc-50/50">
+                  <tr key={o.id} className="hover:bg-zinc-50/50">
                     <td className="px-6 py-4 font-medium text-zinc-900">{product?.name || "Unknown"}</td>
                     <td className="px-6 py-4">{o.quantity}</td>
                     <td className="px-6 py-4">${o.total_price}</td>
@@ -119,8 +159,8 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
 
       {activeTab === "store" && (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {products.map((p, i) => (
-            <div key={i} className="rounded-2xl border border-zinc-200 bg-white p-6 flex flex-col">
+          {products.map((p) => (
+            <div key={p.id} className="rounded-2xl border border-zinc-200 bg-white p-6 flex flex-col">
               <h3 className="text-lg font-medium text-zinc-900">{p.name}</h3>
               <p className="mt-1 text-sm text-zinc-500 flex-grow">{p.description}</p>
               <div className="mt-4 flex items-center justify-between">
@@ -129,7 +169,8 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
                   <span className="ml-2 text-xs text-zinc-500">{p.stock_number} in stock</span>
                 </div>
                 <button 
-                  onClick={() => handleBuy(p.id, p.name)}
+                  type="button"
+                  onClick={() => handleBuy(p)}
                   disabled={buying === p.id}
                   className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
@@ -140,6 +181,25 @@ export default function CustomerClient({ customerId, initialOrders, products }: 
           ))}
         </div>
       )}
+
+      <ConfirmActionDialog
+        open={Boolean(productToConfirm)}
+        title={productToConfirm ? `Buy ${productToConfirm.name}?` : "Confirm purchase"}
+        description={
+          productToConfirm
+            ? `This will place an order for 1 item at $${productToConfirm.selling_price} and reduce available stock from ${productToConfirm.stock_number}.`
+            : ""
+        }
+        confirmLabel="Place order"
+        cancelLabel="Keep browsing"
+        loading={Boolean(productToConfirm && buying === productToConfirm.id)}
+        onConfirmAction={confirmPurchase}
+        onCancelAction={() => {
+          if (!buying) {
+            setProductToConfirm(null);
+          }
+        }}
+      />
     </div>
   );
 }

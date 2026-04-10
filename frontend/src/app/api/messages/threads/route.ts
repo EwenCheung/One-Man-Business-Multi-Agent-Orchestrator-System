@@ -1,14 +1,6 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
 import { NextRequest, NextResponse } from "next/server";
-
-function getBackendBaseUrl() {
-  return (
-    process.env.BACKEND_URL ??
-    process.env.NEXT_PUBLIC_API_URL ??
-    process.env.NEXT_PUBLIC_BACKEND_URL ??
-    "http://localhost:8000"
-  );
-}
 
 export async function GET(request: NextRequest) {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
@@ -31,9 +23,9 @@ export async function GET(request: NextRequest) {
 
   const response = await fetch(backendUrl, {
     method: "GET",
-    headers: {
+    headers: getInternalBackendHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     cache: "no-store",
   });
 
