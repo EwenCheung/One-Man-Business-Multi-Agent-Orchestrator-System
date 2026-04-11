@@ -33,6 +33,15 @@ def create_app() -> FastAPI:
     application.include_router(telegram_router, prefix="/api/v1/telegram")
 
     # ── Health check ──────────────────────────────────────────
+    @application.get("/", tags=["system"])
+    async def root():
+        return {
+            "service": "Multi-Agent Orchestrator",
+            "status": "ok",
+            "health": "/health",
+            "docs": "/docs",
+        }
+
     @application.get("/health", tags=["system"])
     async def health_check():
         return {"status": "ok"}

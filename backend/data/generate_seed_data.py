@@ -486,6 +486,214 @@ def generate_messages(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def generate_owner_memory_rules(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for owner in owners:
+        idx = owner_index(owner)
+        rows.extend(
+            [
+                {
+                    "id": seed_uuid("owner-memory-rule", owner["id"], "customer", "pricing"),
+                    "owner_id": owner["id"],
+                    "role": "customer",
+                    "category": "pricing",
+                    "content": f"Owner {idx}: never offer >12% discount without explicit approval.",
+                    "created_at": "2026-03-20T09:00:00+00:00",
+                    "updated_at": "2026-03-27T09:30:00+00:00",
+                },
+                {
+                    "id": seed_uuid("owner-memory-rule", owner["id"], "supplier", "operations"),
+                    "owner_id": owner["id"],
+                    "role": "supplier",
+                    "category": "operations",
+                    "content": f"Owner {idx}: prioritize lead-time reliability over minimum unit price.",
+                    "created_at": "2026-03-18T08:30:00+00:00",
+                    "updated_at": "2026-03-25T10:15:00+00:00",
+                },
+            ]
+        )
+    return rows
+
+
+def generate_memory_entries(
+    customers: list[dict[str, Any]],
+    suppliers: list[dict[str, Any]],
+    partners: list[dict[str, Any]],
+    investors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    by_owner_customers = _group_by_owner(customers)
+    by_owner_suppliers = _group_by_owner(suppliers)
+    by_owner_partners = _group_by_owner(partners)
+    by_owner_investors = _group_by_owner(investors)
+
+    for owner_id, owner_customers in by_owner_customers.items():
+        customer_a = next(c for c in owner_customers if _email_suffix(c["email"]) == "A")
+        supplier_a = next(
+            s for s in by_owner_suppliers[owner_id] if _email_suffix(s["email"]) == "A"
+        )
+        partner_b = next(p for p in by_owner_partners[owner_id] if _email_suffix(p["email"]) == "B")
+        investor_c = next(
+            i for i in by_owner_investors[owner_id] if _email_suffix(i["email"]) == "C"
+        )
+
+        rows.extend(
+            [
+                {
+                    "id": seed_uuid("memory-entry", owner_id, "customer-a", "ops"),
+                    "owner_id": owner_id,
+                    "sender_id": customer_a["email"],
+                    "sender_name": customer_a["name"],
+                    "sender_role": "customer",
+                    "memory_type": "operations",
+                    "content": "Requested dispatch updates before 4PM every Friday for campus receiving team.",
+                    "summary": "Friday 4PM dispatch update preference",
+                    "tags": json.dumps(["operations", "dispatch", "customer-preference"]),
+                    "importance": "0.78",
+                    "created_at": "2026-03-22T09:40:00+00:00",
+                },
+                {
+                    "id": seed_uuid("memory-entry", owner_id, "supplier-a", "risk"),
+                    "owner_id": owner_id,
+                    "sender_id": supplier_a["email"],
+                    "sender_name": supplier_a["name"],
+                    "sender_role": "supplier",
+                    "memory_type": "risk",
+                    "content": "Supplier warned of seasonal chipset volatility; hold 3-week safety stock for keyboard SKUs.",
+                    "summary": "Chipset volatility requires safety stock",
+                    "tags": json.dumps(["supply-risk", "inventory"]),
+                    "importance": "0.84",
+                    "created_at": "2026-03-24T11:15:00+00:00",
+                },
+                {
+                    "id": seed_uuid("memory-entry", owner_id, "partner-b", "growth"),
+                    "owner_id": owner_id,
+                    "sender_id": partner_b["email"],
+                    "sender_name": partner_b["name"],
+                    "sender_role": "partner",
+                    "memory_type": "growth",
+                    "content": "Partner asked for conversion dashboard snapshot every Monday to tune campaign creatives.",
+                    "summary": "Weekly conversion snapshot request",
+                    "tags": json.dumps(["marketing", "cadence"]),
+                    "importance": "0.66",
+                    "created_at": "2026-03-26T07:55:00+00:00",
+                },
+                {
+                    "id": seed_uuid("memory-entry", owner_id, "investor-c", "finance"),
+                    "owner_id": owner_id,
+                    "sender_id": investor_c["email"],
+                    "sender_name": investor_c["name"],
+                    "sender_role": "investor",
+                    "memory_type": "finance",
+                    "content": "Investor requested gross margin trend with supplier lead-time overlay for monthly review.",
+                    "summary": "Margin + lead-time trend needed monthly",
+                    "tags": json.dumps(["finance", "investor-reporting"]),
+                    "importance": "0.81",
+                    "created_at": "2026-03-28T14:20:00+00:00",
+                },
+            ]
+        )
+    return rows
+
+
+def generate_entity_memories(
+    customers: list[dict[str, Any]], suppliers: list[dict[str, Any]], partners: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for role, entries, content in (
+        ("customer", customers, "Prefers concise ETA + terms, responds fastest before lunch."),
+        ("supplier", suppliers, "Reliable on quality, slower confirmation during month-end."),
+        ("partner", partners, "Performs best when provided weekly product availability snapshot."),
+    ):
+        for entry in entries:
+            if _email_suffix(entry["email"]) != "A":
+                continue
+            rows.append(
+                {
+                    "id": seed_uuid("entity-memory", role, entry["id"]),
+                    "owner_id": entry["owner_id"],
+                    "entity_role": role,
+                    "entity_id": entry["id"],
+                    "memory_type": "working-style",
+                    "content": content,
+                    "summary": f"{entry['name']} working style baseline",
+                    "tags": json.dumps([role, "working-style"]),
+                    "importance": 2,
+                    "created_at": "2026-03-19T10:00:00+00:00",
+                    "updated_at": "2026-03-29T10:00:00+00:00",
+                }
+            )
+    return rows
+
+
+def generate_conversation_memories(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for thread in threads:
+        rows.append(
+            {
+                "id": seed_uuid("conversation-memory", thread["id"]),
+                "owner_id": thread["owner_id"],
+                "conversation_thread_id": thread["id"],
+                "entity_role": thread["sender_role"],
+                "entity_id": None,
+                "summary": f"Historical recap: {thread['sender_name']} aligned on timelines and requested structured updates.",
+                "keywords": json.dumps(["timeline", "follow-up", "weekly-status"]),
+                "happened_at": "2026-03-30T12:00:00+00:00",
+                "created_at": "2026-03-30T12:10:00+00:00",
+            }
+        )
+    return rows
+
+
+def generate_conversation_sender_memories(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for thread in threads:
+        rows.append(
+            {
+                "id": seed_uuid("conversation-sender-memory", thread["id"]),
+                "owner_id": thread["owner_id"],
+                "conversation_thread_id": thread["id"],
+                "sender_external_id": thread["sender_external_id"],
+                "sender_name": thread["sender_name"],
+                "sender_role": thread["sender_role"],
+                "summary": f"Daily work note: prepared recap for {thread['sender_name']} and queued next action checklist.",
+                "message_count_since_update": 2,
+                "last_message_at": "2026-03-31T08:45:00+00:00",
+                "last_summarized_at": "2026-03-31T09:00:00+00:00",
+                "created_at": "2026-03-31T09:00:00+00:00",
+                "updated_at": "2026-03-31T09:00:00+00:00",
+            }
+        )
+    return rows
+
+
+def generate_daily_digests(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for owner in owners:
+        idx = owner_index(owner)
+        rows.extend(
+            [
+                {
+                    "id": seed_uuid("daily-digest", owner["id"], "day-1"),
+                    "owner_id": owner["id"],
+                    "title": f"Owner {idx} Daily Ops - Supplier coordination",
+                    "summary": "Reviewed lead times, raised one approval for policy-edge discount, and confirmed replenishment window.",
+                    "risk": "medium",
+                    "created_at": "2026-03-30T18:00:00+00:00",
+                },
+                {
+                    "id": seed_uuid("daily-digest", owner["id"], "day-2"),
+                    "owner_id": owner["id"],
+                    "title": f"Owner {idx} Daily Ops - Customer follow-ups",
+                    "summary": "Closed two customer threads, captured one long-term preference, and prepared investor update points.",
+                    "risk": "low",
+                    "created_at": "2026-03-31T18:00:00+00:00",
+                },
+            ]
+        )
+    return rows
+
+
 def generate_memory_update_proposals(customers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_owner = _group_by_owner(customers)
     rows: list[dict[str, Any]] = []
@@ -674,6 +882,12 @@ def main() -> None:
     external_identities = generate_external_identities(customers, suppliers, partners, investors)
     conversation_threads = generate_conversation_threads(customers, suppliers, partners, investors)
     messages = generate_messages(conversation_threads)
+    owner_memory_rules = generate_owner_memory_rules(owners)
+    memory_entries = generate_memory_entries(customers, suppliers, partners, investors)
+    entity_memories = generate_entity_memories(customers, suppliers, partners)
+    conversation_memories = generate_conversation_memories(conversation_threads)
+    conversation_sender_memories = generate_conversation_sender_memories(conversation_threads)
+    daily_digests = generate_daily_digests(owners)
     memory_update_proposals = generate_memory_update_proposals(customers)
     held_replies = generate_held_replies(conversation_threads)
     reply_review_records = generate_reply_review_records(held_replies)
@@ -823,6 +1037,83 @@ def main() -> None:
             "direction",
             "content",
         ],
+    )
+    write_csv(
+        "owner_memory_rules.csv",
+        owner_memory_rules,
+        ["id", "owner_id", "role", "category", "content", "created_at", "updated_at"],
+    )
+    write_csv(
+        "memory_entries.csv",
+        memory_entries,
+        [
+            "id",
+            "owner_id",
+            "sender_id",
+            "sender_name",
+            "sender_role",
+            "memory_type",
+            "content",
+            "summary",
+            "tags",
+            "importance",
+            "created_at",
+        ],
+    )
+    write_csv(
+        "entity_memories.csv",
+        entity_memories,
+        [
+            "id",
+            "owner_id",
+            "entity_role",
+            "entity_id",
+            "memory_type",
+            "content",
+            "summary",
+            "tags",
+            "importance",
+            "created_at",
+            "updated_at",
+        ],
+    )
+    write_csv(
+        "conversation_memories.csv",
+        conversation_memories,
+        [
+            "id",
+            "owner_id",
+            "conversation_thread_id",
+            "entity_role",
+            "entity_id",
+            "summary",
+            "keywords",
+            "happened_at",
+            "created_at",
+        ],
+    )
+    write_csv(
+        "conversation_sender_memories.csv",
+        conversation_sender_memories,
+        [
+            "id",
+            "owner_id",
+            "conversation_thread_id",
+            "sender_external_id",
+            "sender_name",
+            "sender_role",
+            "summary",
+            "message_count_since_update",
+            "last_message_at",
+            "last_summarized_at",
+            "created_at",
+            "updated_at",
+        ],
+    )
+    write_csv(
+        "daily_digest.csv",
+        daily_digests,
+        ["id", "owner_id", "title", "summary", "risk", "created_at"],
     )
     write_csv(
         "memory_update_proposals.csv",

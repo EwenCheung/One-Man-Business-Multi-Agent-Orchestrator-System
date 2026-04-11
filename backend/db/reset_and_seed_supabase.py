@@ -17,6 +17,16 @@ from backend.db.seed_auth_users import get_supabase_admin_client, main as seed_a
 OWNER_EMAILS = ["owner1@gmail.com", "owner2@gmail.com"]
 
 
+def _find_auth_user_id_by_email(email: str) -> str | None:
+    db_engine = cast(Engine, engine)
+    with db_engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT id FROM auth.users WHERE lower(email) = :email LIMIT 1"),
+            {"email": email.lower()},
+        ).first()
+    return str(result[0]) if result else None
+
+
 def _default_memory_context(business_name: str) -> str:
     return (
         "# Long-Term Memory\n\n"
@@ -46,12 +56,11 @@ def ensure_owner_auth_users() -> list[dict[str, str]]:
     if supabase is None:
         raise RuntimeError("Supabase admin client is not configured")
 
-    users = supabase.auth.admin.list_users()
     owners: list[dict[str, str]] = []
 
     for index, email in enumerate(OWNER_EMAILS, start=1):
-        existing = next((user for user in users if (user.email or "").lower() == email), None)
-        if existing is None:
+        owner_id = _find_auth_user_id_by_email(email)
+        if owner_id is None:
             created = supabase.auth.admin.create_user(
                 {
                     "email": email,
@@ -61,8 +70,6 @@ def ensure_owner_auth_users() -> list[dict[str, str]]:
                 }
             )
             owner_id = str(created.user.id)
-        else:
-            owner_id = str(existing.id)
 
         owners.append(
             {
