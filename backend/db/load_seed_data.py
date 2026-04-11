@@ -125,7 +125,10 @@ def load_all(with_embeddings: bool = False) -> None:
 
             filepath = SEED_DIR / filename
             if not filepath.exists():
-                print(f"  skipping {filename} (not found — run generate_seed_data.py first)")
+                print(
+                    "  skipping "
+                    f"{filename} (not found — run backend/data/generate_seed_data.py first)"
+                )
                 continue
 
             with open(filepath, newline="") as f:

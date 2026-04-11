@@ -14,15 +14,25 @@ This will:
 1. Ensure seeded owners exist in Supabase Auth (`owner1@gmail.com`, `owner2@gmail.com`).
 2. Apply the current schema updates.
 3. Wipe business data tables.
-4. Recreate owner profiles with empty Telegram bot token and webhook secret.
-5. Generate fresh owner-scoped seed CSVs.
+4. Recreate owner profiles with default tone and default `memory_context` / `soul_context` / `rule_context` values.
+5. Generate fresh deterministic owner-scoped seed CSVs using the canonical generator: `backend/data/generate_seed_data.py`.
 6. Load the seed CSVs into Supabase.
 7. Recreate login-ready auth users for seeded customers, suppliers, partners, and investors.
 
-The seeded roles are:
+The seeded roles per owner are:
 
-- `owner1@gmail.com`, `customer1@gmail.com`, `supplier1@gmail.com`, `partner1@gmail.com`, `investor1@gmail.com`
-- `owner2@gmail.com`, `customer2@gmail.com`, `supplier2@gmail.com`, `partner2@gmail.com`, `investor2@gmail.com`
+- `owner1@gmail.com`
+  - Customers: `customer1A@gmail.com`, `customer1B@gmail.com`, `customer1C@gmail.com`
+  - Suppliers: `supplier1A@gmail.com`, `supplier1B@gmail.com`, `supplier1C@gmail.com`
+  - Partners: `partner1A@gmail.com`, `partner1B@gmail.com`, `partner1C@gmail.com`
+  - Investors: `investor1A@gmail.com`, `investor1B@gmail.com`, `investor1C@gmail.com`
+- `owner2@gmail.com`
+  - Customers: `customer2A@gmail.com`, `customer2B@gmail.com`, `customer2C@gmail.com`
+  - Suppliers: `supplier2A@gmail.com`, `supplier2B@gmail.com`, `supplier2C@gmail.com`
+  - Partners: `partner2A@gmail.com`, `partner2B@gmail.com`, `partner2C@gmail.com`
+  - Investors: `investor2A@gmail.com`, `investor2B@gmail.com`, `investor2C@gmail.com`
+
+The reset script writes owner bindings to `backend/data/seed/owners.json`. The canonical generator reads this file so all seeded entities use real owner IDs.
 
 All seeded auth users use password:
 
