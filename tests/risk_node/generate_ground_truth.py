@@ -11,9 +11,9 @@ Cases are hard-coded in Python (no LLM paraphrases) because the state fields tha
 trigger Layer 1 (confidence_level, tone_flags, completed_tasks, etc.) must be exact
 — linguistic variety in task descriptions is not what we are testing here.
 
-The 18 cases cover four scenario groups:
-  - upgrade -> high (7 cases + 1 boundary)  : LLM should detect new semantic risk
-  - maintain medium (5 cases)               : LLM finds no new material risk
+The 14 cases cover four scenario groups:
+  - upgrade -> high (5 cases + 1 boundary)  : LLM should detect new semantic risk
+  - maintain medium (3 cases)               : LLM finds no new material risk
   - downgrade -> low (4 cases)              : Layer 1 flag is a false positive
   - boundary (2 cases)                      : Genuinely ambiguous; expected level
                                               is the most defensible call but flips
@@ -140,7 +140,7 @@ def _retriever_task(task_id: str, description: str, result_text: str, facts: lis
 # ── Case definitions ───────────────────────────────────────────────────────────
 
 def _build_cases() -> list[dict]:
-    """Return all 18 GT cases.
+    """Return all 14 GT cases.
 
     Each entry has:
       case_id, scenario, boundary_type, expected_stable_level,
