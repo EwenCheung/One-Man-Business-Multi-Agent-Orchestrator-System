@@ -58,18 +58,30 @@ class ReplyOutput(BaseModel):
     confidence_level: str = Field(
         description=(
             "Machine-readable confidence summary. Must be exactly one of: "
-            "'high' — all claims in the reply are confirmed by sub-agent results; "
-            "'medium' — some claims are hedged or not fully confirmed; "
-            "'low' — significant gaps exist; reply relies on follow-up commitments."
+            "'high' — all claims in the reply are confirmed by sub-agent results, "
+            "no result text flags missing data, and no approval is pending for the sender's primary ask; "
+            "'medium' — the reply is partially grounded: some requested data is explicitly "
+            "unavailable in the results, or a REQUIRES OWNER APPROVAL verdict exists but "
+            "the policy context itself is clear; "
+            "'low' — no sub-agent data is available at all, the sender's core question "
+            "cannot be answered from the results, or approval is pending AND the core data "
+            "(pricing, delivery, return outcome) was never retrieved."
         )
     )
     unverified_claims: list[str] = Field(
         default_factory=list,
         description=(
-            "List of specific statements in the reply that could not be fully confirmed "
-            "by sub-agent results. Each entry is a short phrase identifying the claim. "
-            "Examples: ['ships within 3 days — not confirmed by retriever', "
-            "'price quoted — not verified by policy agent']. Empty if all claims verified."
+            "List of specific things the sender asked about that could NOT be fully "
+            "confirmed by sub-agent results — regardless of whether you hedged or "
+            "omitted those things in the reply. Include every gap in the sender's "
+            "question, not just claims you made. "
+            "Examples: ['delivery date — not confirmed by retriever', "
+            "'current delivery status — tracking data stale', "
+            "'whether 15% increase will be approved — pending owner review', "
+            "'unit pricing — not retrieved', "
+            "'whether damage complaint will be resolved — no data available']. "
+            "Empty ONLY when every specific aspect of the sender's question was "
+            "directly and fully answered by the sub-agent results."
         ),
     )
     tone_flags: list[str] = Field(
@@ -188,6 +200,61 @@ figures absent from this section. If the sender's question requires information
 not listed here, commit to following up rather than guessing.
 
 {completed_tasks_text}
+
+══════════════════════════════════════════════════════════════════
+CONFIDENCE CALIBRATION — answer these questions BEFORE drafting
+══════════════════════════════════════════════════════════════════
+Work through Q1 → Q2 → Q3 in order. Stop at the first YES.
+
+Q1  Is the verified findings section empty ("No sub-agent results available")?
+    → YES: confidence_level = "low". ABSOLUTE RULE — no exceptions.
+      This applies even when you can write a professionally complete reply
+      (e.g. an empathetic complaint acknowledgement or a follow-up commitment).
+      A well-written reply without verified data is still LOW confidence.
+      Also list in unverified_claims every specific thing the sender asked about.
+
+Q1b Do the results exist but provide NOTHING ACTIONABLE for the sender's primary ask?
+    This means the only content in the results is: approval required with no
+    alternative offered, and/or the key data was explicitly not retrieved.
+    Ask: "Can I tell the sender anything concrete about what they asked, beyond
+    'we cannot answer this right now / it needs review'?"
+    Examples that trigger YES:
+    - Policy says "REQUIRES OWNER APPROVAL" AND explicitly states that the core
+      data (e.g. pricing, delivery date) was not retrieved / is not available here
+    - All tasks returned errors or empty results
+    → YES: confidence_level = "low"
+    Compare to MEDIUM: if the results give you at least one piece of actionable
+    information to communicate (e.g. a policy position, a cap, a process), it
+    is MEDIUM — not LOW — even if the final outcome is pending.
+
+Q2  Does the sender's PRIMARY ask remain unanswered — even partially?
+    The test: "After reading my reply, will the sender still not know
+    [the specific thing they asked]?"
+
+    Answer YES if any of the following is true:
+    • They asked about a delivery date / ETA, and the result says it cannot
+      be confirmed, is unavailable, or tracking data is stale / unknown
+    • They asked about pricing or a quote, and no price data was retrieved
+    • They asked whether a specific request (exception, increase, discount,
+      return outside policy) will be APPROVED, and approval is pending review
+    • Any result contains: "UNKNOWN", "cannot be confirmed", "not available",
+      "requires owner approval", "requires review", "stale", "no further scan",
+      "no data", or similar language about the information the sender wanted
+    • You are rejecting or deferring their ask rather than confirming it
+
+    → YES: confidence_level = "medium"
+      List in unverified_claims every aspect of the sender's question that
+      lacks a confirmed answer (include items you hedged OR simply omitted).
+
+Q3  Is the sender's primary ask fully and directly answered — with no gaps,
+    no stale data, no approval pending, and no hedging needed?
+    → YES: confidence_level = "high". unverified_claims = [].
+
+CRITICAL REMINDER:
+HIGH does NOT mean "everything I said is technically accurate."
+HIGH means "the sender's question is fully answered by the verified data."
+You can write a precise, factual reply and still be MEDIUM or LOW if the
+sender's core question was only partially answered or not answered at all.
 
 ══════════════════════════════════════════════════════════════════
 TASK
