@@ -100,14 +100,31 @@ class ResearchSummary(BaseModel):
     )
     confidence: str = Field(
         description=(
-            "'high' — multiple corroborating sources found. "
-            "'medium' — one clear source found. "
-            "'low' — indirect results or nothing directly relevant."
+            "Assign based strictly on source count and domain match — "
+            "not on how detailed or authoritative a single source is. "
+            "FIRST: if results are from the wrong geography or wrong domain/sector for the task, "
+            "assign 'low' regardless of result quality. "
+            "OTHERWISE: "
+            "'high' — 2 or more independent credible sources corroborate the same specific fact. "
+            "'medium' — exactly 1 credible primary source answers the task, even if that source "
+            "is highly authoritative (e.g. HMRC, GOV.UK, official bodies — 1 source is still 'medium'). "
+            "'low' — no relevant results found, results are indirect or stale, or results are "
+            "from the wrong geography or sector for the task."
         )
     )
     caveat: Optional[str] = Field(
         default=None,
-        description="Any important limitation or gap the Orchestrator should know about.",
+        description=(
+            "A specific, identified limitation in the results. "
+            "Set to None when results completely answer the task with no gaps, "
+            "staleness, contradictions, or scope issues — do not add a general disclaimer. "
+            "Only populate when at least one of these is true: "
+            "(1) part of the task was not answered by any result, "
+            "(2) sources are stale or flagged as potentially out of date, "
+            "(3) results are from the wrong domain or geography, "
+            "(4) two sources contradict each other, "
+            "(5) results are indirect or from low-trust sources."
+        ),
     )
 
 
@@ -146,6 +163,46 @@ RESEARCH TASK
 RAW SEARCH RESULTS
 ══════════════════════════════════════════════════════════════════
 {raw_results}
+
+══════════════════════════════════════════════════════════════════
+CONFIDENCE ASSIGNMENT — Apply the first matching rule
+══════════════════════════════════════════════════════════════════
+
+confidence = "low" if ANY of these is true:
+  • No relevant results found.
+  • The product category / industry sector of the sources does not match the
+    product category / industry sector of the task.
+    (e.g. task asks about electronics margins; sources are about automotive
+    parts — these are different sectors even though both sell "accessories")
+  • The geography of the sources does not match the geography of the task.
+    (e.g. task asks for UK data; sources cover the US market only)
+  • Results are only indirect, stale, or from low-trust sources.
+
+confidence = "high" ONLY when ALL THREE conditions are true simultaneously:
+  1. Sources are from the correct sector and geography for the task.
+  2. Every question and sub-question in the task description is answered
+     by the results. If any part is unanswered, "high" is NOT permitted.
+  3. Two or more INDEPENDENT source URLs corroborate the same specific fact.
+     Count distinct "(source: ...)" URLs — a single source with many data
+     points is still ONE source and cannot qualify for "high".
+
+confidence = "medium" in all other cases, including:
+  • Exactly 1 source answers the task fully.
+  • 2+ sources exist but at least one sub-question is unanswered.
+  • Authoritative single sources (HMRC, GOV.UK, official bodies) — authority
+    does not substitute for corroboration; 1 authoritative source = "medium".
+
+══════════════════════════════════════════════════════════════════
+CAVEAT ASSIGNMENT — Default is null/None
+══════════════════════════════════════════════════════════════════
+Only populate caveat when you can state a specific, identifiable problem:
+  • Name a sub-question from the task that no result answered.
+  • Name a source that explicitly flags its data as stale or subject to review.
+  • Describe the exact domain or geography mismatch if confidence = "low".
+  • Describe the contradiction if two sources give conflicting figures.
+Do NOT write generic disclaimers ("verify with primary sources", "data may
+change", "may not reflect all conditions"). If none of the above apply,
+set caveat to null/None.
 
 ══════════════════════════════════════════════════════════════════
 TASK

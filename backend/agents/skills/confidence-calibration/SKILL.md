@@ -25,19 +25,27 @@ hedging. This skill defines exactly when each level applies.
 
 ## Confidence Levels
 
-| Level    | Criteria                                                                                                   | Example                                              |
-| -------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `high`   | ≥ 2 independent, credible sources corroborate the same specific fact                                       | IDC and Statista both report TWS market grew 23% YoY |
-| `medium` | 1 clear, credible, primary source supports the finding                                                     | Single IDC report with a specific figure             |
-| `low`    | Results are indirect, outdated (stale per source-evaluation thresholds), from low-trust sources, or absent | Only a 2023 blog post mentioning the topic           |
+**The only variable that controls confidence is source count and quality — not how complete, detailed, or authoritative a single source is.**
+
+| Level    | Criteria                                                                                                                          | Example                                              |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `high`   | ≥ 2 independent, credible sources corroborate the same specific fact                                                              | IDC and Statista both report TWS market grew 23% YoY |
+| `medium` | Exactly 1 clear, credible, primary source supports the finding — regardless of how authoritative or complete that source is       | Single HMRC page with full VAT rate table            |
+| `low`    | Results are indirect, outdated, from low-trust sources, absent — **or from the wrong domain/geography for the task**             | US return-rate data when the task asks for UK data   |
 
 ### Decision Tree
 
 ```
-Found ≥ 2 independent credible sources agreeing? → high
-Found 1 credible primary source? → medium
+Results are from the wrong domain or geography for the task? → low (stop here)
+Found ≥ 2 independent credible sources agreeing on the same fact? → high
+Found exactly 1 credible primary source? → medium
 Found only secondary/low-trust/stale/no sources? → low
 ```
+
+> **Geographic and domain mismatch always produces `low`**, even if the mismatched
+> results are high-quality. A US market report does not answer a UK market question.
+> An automotive margin study does not answer an electronics margin question.
+> Flag the mismatch in `caveat` and set confidence to `low`.
 
 ## Behaviour When Confidence Is Low
 
@@ -55,9 +63,12 @@ Low confidence does NOT mean "return nothing." Follow these steps:
 
 ## Anti-patterns
 
-| ❌ Don't                                           | ✅ Do                                         |
-| -------------------------------------------------- | --------------------------------------------- |
-| Set `high` because one very detailed source exists | Set `medium` — detail ≠ corroboration         |
-| Set `low` without explaining what's missing        | Always pair with a specific caveat            |
-| Leave `key_findings` empty and set `low`           | Still report what was found, even if weak     |
-| Set `high` for projections/forecasts               | Forecasts are ≤ `medium` even if sourced well |
+| ❌ Don't                                                        | ✅ Do                                                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Set `high` because one very detailed source exists              | Set `medium` — detail and authority do not equal corroboration     |
+| Set `high` because a single source is from a trusted authority  | Set `medium` — even HMRC, GOV.UK, or official bodies are `medium` alone |
+| Set `medium` or `high` when results are from the wrong geography| Set `low` — wrong geography = wrong data, regardless of quality    |
+| Set `medium` or `high` when results are from the wrong sector   | Set `low` — wrong domain = wrong data, regardless of quality       |
+| Set `low` without explaining what's missing                     | Always pair with a specific caveat                                 |
+| Leave `key_findings` empty and set `low`                        | Still report what was found, even if weak                          |
+| Set `high` for projections/forecasts                            | Forecasts are ≤ `medium` even if sourced well                      |

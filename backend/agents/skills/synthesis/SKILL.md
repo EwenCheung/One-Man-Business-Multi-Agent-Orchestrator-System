@@ -64,7 +64,31 @@ caveat: "IDC and Statista report different 2025 market sizes ($38B vs $42B),
 likely due to different market boundary definitions (IDC excludes hearing aids)."
 ```
 
-### 4. Do not extrapolate beyond the data
+### 4. Caveat is not a default hedge — omit it when results are complete
+
+`caveat` must be `None` (absent) unless you can name a **specific, identifiable**
+problem with the results. Do not add a caveat as a general safety disclaimer.
+
+**Set caveat to `None` when all of the following are true:**
+- The results directly answer every part of the task
+- Sources are current and from the correct domain/geography
+- No contradictions exist between sources
+- No part of the task was left unanswered
+
+**Set caveat when at least one of these is true:**
+- A part of the task was not answered by any result
+- Sources are stale or flagged as potentially out of date
+- Results are from the wrong domain or geography
+- Two sources contradict each other
+- Results are indirect or from low-trust sources
+
+| ❌ BAD (hedge for safety)                                        | ✅ GOOD (specific gap)                                                     |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| "Results may not reflect all market conditions."                 | `None` — results are complete, current, and directly on-topic             |
+| "Always verify with primary sources before acting."             | `None` — findings are already from primary sources                        |
+| "Data currency cannot be guaranteed."                           | "Sources are dated 2022–2023; rates may have changed since then."         |
+
+### 5. Do not extrapolate beyond the data
 
 If sources report 2024 figures and the task asks about 2026, **do not**
 project, interpolate, or estimate. Report what was found and note the gap.
@@ -95,5 +119,5 @@ Before returning findings, verify:
 - [ ] Every finding has an inline source attribution
 - [ ] Contradictions are reported as separate findings with a caveat
 - [ ] No extrapolation or interpolation beyond found data
-- [ ] `caveat` explains any gaps between what was asked and what was found
+- [ ] `caveat` is `None` if results are complete, current, and on-topic — or contains a specific gap if not
 - [ ] `sources` list matches the sources cited in findings
