@@ -1,0 +1,471 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{float} % optional (for H placement)
+\usepackage{hyperref}
+\pagestyle{fancy}
+
+\fancyhf{} % clear everything
+
+% Header
+\fancyhead[L]{One-Man-Business Multi-Agent Orchestrator System}
+\fancyhead[R]{Group 8}
+
+% Footer
+\fancyfoot[C]{\thepage}
+\begin{document}
+
+\begin{center}
+{\LARGE \textbf{One-Man-Business Multi-Agent Orchestrator System}}\\[0.5em]
+
+{\normalsize Role-Aware Autonomy, Risk Governance, Human Collaboration, A Rule-First, Prompt-Second}\\
+{\normalsize and Responsible AI by Harness Design}
+
+\vspace{1em}
+
+Ewen Cheung Yi Wen$^{1}$, Chun Man Ng$^{1}$, Gabriella$^{1}$ and Jingyu Liao$^{1}$\\
+{\small $^{1}$ School of Computing, National University of Singapore, Singapore}\\
+{\small \{ewen.cheung, ng.chunman, gabriella, e0969003\}@u.nus.edu}
+\end{center}
+
+\vspace{1.5em}
+
+\begin{center}
+\textbf{Abstract}
+\end{center}
+
+
+\noindent
+This report presents the One-Man-Business Multi-Agent Orchestrator System, an AI-powered communication management platform for solo entrepreneurs. The system employs a supervisor-based multi-agent architecture built on LangGraph, where a central orchestrator decomposes stakeholder messages and delegates subtasks to specialized agents for data retrieval, policy compliance, external research, and memory management. A two-layer risk evaluation pipeline—combining deterministic rule-based checks with LLM-based semantic analysis—governs all outgoing replies, flagging commitments, concessions, and sensitive disclosures for human approval. The architecture embodies a rule-first, prompt-second defense philosophy: safety-critical constraints such as role-based access control are enforced at the infrastructure level through tool-binding restrictions, while LLM-based judgment is reserved for inherently subjective tasks like tone calibration and response shaping. The system adopts a harness engineering approach, wrapping each sub-agent in fault-containment wrappers with circuit breakers, error quarantine, and output sanitization to support autonomous operation while bounding downside risk. This reduces reliance on model alignment for security properties while integrating structured output enforcement, multi-channel entry (website and Telegram), and a three-layer memory architecture for contextual coherence across five stakeholder classes.
+
+
+\section{Introduction}
+\setcounter{page}{1}
+\subsection{Motivation}
+Solo entrepreneurs must handle diverse communications while maintaining consistency, confidentiality, and compliance. Mistakes such as incorrect pricing or data leakage can have serious consequences. While LLMs enable powerful language understanding, single-agent systems lack control, structure, and safeguards.
+
+\subsection{Problem Statement}
+This project addresses the following question: How can an AI system autonomously manage multi-stakeholder business communications for a solo entrepreneur while enforcing role-based data access, policy compliance, risk governance, and human-in-the-loop approval for high-stakes decisions? Specifically, the system must: (1) classify incoming messages by sender role, intent, and urgency; (2) decompose complex queries into subtasks delegated to specialized agents; (3) retrieve and synthesize internal business data with role-appropriate visibility; (4) evaluate responses against business policies using grounded retrieval; (5) assess outgoing replies for financial, legal, and reputational risk; and (6) hold flagged responses for owner approval before delivery. These requirements span two chat entry channels—website and Telegram—each converging into the same back-end pipeline but with distinct thread and identity models.
+
+\subsection{Significance and Relevance to AI}
+This work sits at the intersection of several active AI research areas: multi-agent systems, Retrieval-Augmented Generation (RAG), LLM-based planning and reasoning, structured output enforcement, and responsible AI deployment. The system demonstrates how compositional AI architectures can address real-world business needs that no single model can fulfill alone. By combining a supervisor-based orchestration pattern with hybrid retrieval, two-layer risk evaluation, harness engineering for fault containment, role-based access control enforced at the infrastructure level, and human oversight for high-stakes actions, the project contributes a practical reference architecture for deploying LLM-powered multi-agent systems in trust-sensitive domains.
+
+\section{Literature Review / Related Work}
+
+\subsection{Multi-Agent Systems and LLM Orchestration}
+Multi-agent systems (MAS) have a long history in AI, focusing on communication, coordination, and cooperative problem-solving [1]. The rise of LLM-powered agents has renewed interest in this area, with frameworks such as AutoGen [2], CrewAI [3], and LangGraph [4] enabling composable agent workflows. LangGraph models interactions as directed graphs with conditional routing, parallelism, and state aggregation, supporting the orchestrator pattern used in this system. Our design follows a supervisor architecture, where a central orchestrator decomposes tasks and delegates to specialized agents. It adopts a synthesis-over-delegation approach, requiring incorporation of completed results before issuing new tasks, reducing vague or hallucinated instructions [5].
+
+\subsection{Retrieval-Augmented Generation (RAG)}
+RAG enhances LLM outputs by grounding them in retrieved external knowledge [6]. While standard pipelines rely on embedding-based retrieval, hybrid approaches combining semantic and lexical search improve recall [7], and cross-encoder reranking improves precision [8]. Our policy agent implements a hybrid RAG pipeline using pgvector-based semantic search, keyword matching, and cross-encoder reranking (mxbai-rerank-base-v1) [9], enabling accurate and grounded policy evaluation.
+
+\subsection{Risk Assessment and Guardrails for LLM Applications}
+Deploying LLMs in business-critical applications requires robust guardrails. NeMo Guardrails [10] and Guardrails AI [11] provide frameworks for input/output validation, but typically operate at the single-model level. Our system implements a two-layer risk evaluation: a fast deterministic rule-based layer that catches explicit violations (PII leakage, price commitments, escalation triggers) followed by an LLM-based semantic layer that detects implied commitments, factual contradictions, and tone anomalies. This layered approach mirrors the defense-in-depth principle from information security [12].
+
+\subsection{Role-Based Access Control in AI Systems}
+While role-based access control (RBAC) is well-established in traditional software systems [13], its application to LLM-powered agents is relatively novel. Existing approaches typically embed access restrictions in system prompts, which are inherently brittle against prompt injection and model hallucination. In our system, RBAC is enforced at the tool-binding level: the retrieval agent dynamically binds only the tools permitted for the sender's role, preventing unauthorized data access regardless of LLM behavior. This approach provides a hard security boundary that is independent of prompt engineering or model alignment.
+
+\subsection{Conversational Memory and Context Management}
+Maintaining coherent long-term context in multi-turn conversations remains challenging for LLM systems. Approaches range from simple sliding window buffers to structured memory systems with retrieval [14]. Our system employs a three-layer memory architecture: short-term (recent messages), durable (long-term facts and preferences), and sender-specific profiles, with periodic compaction to manage context window budgets. This design is influenced by memory-augmented language models and the MemGPT architecture [15].
+
+\subsection{Comparison with Alternative Approaches}
+Compared with single-agent LLM assistants, our multi-agent architecture separates concerns across planning, retrieval, policy grounding, risk evaluation, and memory management. This decomposition improves controllability and allows safety-critical functions such as role-based access control and approval gating to be implemented outside the language model itself. In contrast, a single-agent design may be simpler and lower-latency, but it places more responsibility on prompt engineering and model behavior, making failures harder to isolate and audit.
+
+Compared with purely rule-based business automation systems, our approach is more flexible for handling ambiguous or novel stakeholder queries, especially when responses require synthesis across policies, history, and external information. However, rule-based systems remain more predictable for narrow tasks.
+
+Compared with end-to-end retrieval-augmented assistants, our system adds explicit orchestration and risk-governed workflow stages. This introduces additional complexity and latency, but yields stronger modularity, auditability, and human oversight for trust-sensitive business communication.
+
+\section{Methodology}
+
+\subsection{System Architecture Overview}
+The system follows a supervisor-based multi-agent architecture implemented as a directed acyclic graph (with controlled cycles) using LangGraph. The pipeline processes each incoming message through a sequence of stages: Intake, Orchestration (with iterative replanning), Sub-Agent Execution, Reply Generation, Approval Rule Checking, Risk Evaluation, and either automatic dispatch or hold-for-approval. Figure 1 illustrates the high-level pipeline flow.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{mermaid.png}
+    \caption{System Architecture and Flow}
+    \label{fig:system-architecture}
+\end{figure}
+
+
+\subsection{Pipeline State and Message Flow}
+The pipeline operates on a shared state object (PipelineState) that accumulates information as it flows through nodes. The state schema includes: input fields (raw message, sender identifiers, thread ID), intake outputs (sender role, intent label, urgency level, multi-layer memory context, persona and rules context), orchestrator outputs (task plan, routing decisions, replan counter), sub-agent outputs (completed and failed task lists with fan-in aggregation), reply outputs (generated text, confidence level, unverified claims, tone flags), risk outputs (risk level, risk flags, approval requirement), and approval outputs (held reply ID for dashboard review).
+
+\subsection{Intake and Identity Resolution}
+The intake node consolidates three formerly separate stages—receiver, triage, and context building—into a single efficient node. It resolves the sender's identity by normalizing external identifiers (email, phone, username) and querying the ExternalIdentity table. If the sender matches the owner's UUID or email, they are assigned the 'owner' role; otherwise, the system looks up or creates an entity record with the appropriate role (customer, supplier, partner, or investor). The node then loads owner-specific persona, rules, business description, and memory context from the database profile and memory services, and constructs the three-layer memory context: short-term chat history, durable long-term summaries, and sender-specific profile data. If profile fields are empty, the code falls back to conservative built-in default strings rather than reading local markdown files.
+
+\subsection{Decision-Theoretic Framing}
+At each decision point, the system implicitly selects actions that maximize expected utility (MEU) under uncertainty, where utility is defined over multiple competing objectives, including response quality, policy compliance, confidentiality, reputational risk, and latency.
+
+Concretely, the system evaluates trade-offs between potential benefits and risks: low-risk responses are dispatched immediately to maximize efficiency, whereas medium- and high-risk responses are deferred for human approval when the expected cost of an incorrect or unsafe action exceeds the benefit of automation. The two-layer risk evaluation and approval mechanism therefore acts as a practical approximation of MEU-based decision making, where uncertainty is managed through rule-based filtering and LLM-based semantic assessment rather than explicit probabilistic modeling.
+
+\subsection{Orchestrator: Task Decomposition and Planning}
+
+The orchestrator agent functions as a supervisor that decomposes incoming requests into subtasks and assigns them to specialized sub-agents. It operates at temperature 0.0 for deterministic planning and implements two planning modes:
+
+\begin{itemize}
+\item \textbf{Deterministic paths:} For well-understood request types (discount requests, supplier terms, policy questions), the orchestrator follows hard-coded deterministic task decomposition paths, ensuring consistent routing.
+
+\item \textbf{Flexible planning:} For novel or complex requests, the orchestrator uses LLM-based flexible planning, generating a TaskDef list specifying task descriptions, assignees, priorities, dependencies, and required context.
+\end{itemize}
+
+The orchestrator enforces a "synthesis-over-delegation" principle: before creating new tasks, it must incorporate specific data from completed tasks into new task descriptions, preventing vague delegation. Replanning is bounded by MAX\_REPLAN\_CYCLES (default 2) to prevent infinite loops, and parallel task dispatch is capped at MAX\_PARALLEL\_TASKS (default 4) to control context injection complexity.
+
+\subsection{Sub-Agent Specialization}
+
+Four specialized sub-agents handle distinct aspects of request processing:
+
+\begin{itemize}
+\item \textbf{Retrieval Agent:} Fetches internal business data (products, orders, profiles, contracts) with role-based access control. The agent dynamically binds only the tools permitted for the sender's role via a hard-coded ROLE\_TOOL\_MAP, ensuring that customers cannot access cost data, suppliers cannot view customer information, and so on. A dedicated evaluate\_discount\_request tool implements quantity-tiered discount logic with margin floor enforcement (cost $\times$ 1.12).
+
+\item \textbf{Policy Agent:} Implements a hybrid RAG pipeline for grounded policy evaluation. It performs semantic search (pgvector cosine similarity with text-embedding-3-small embeddings), lexical keyword search, candidate merging with deduplication, and cross-encoder reranking (mxbai-rerank-base-v1) to produce a structured PolicyDecision with verdict, supporting rules, confidence level, and hard-constraint annotation.
+
+\item \textbf{Research Agent:} Conducts external web searches via the Tavily API for market intelligence and supplementary information. It uses LLM-generated search queries (up to 2 per task) and synthesizes results into a structured ResearchSummary with key findings, sources, confidence level, and caveats.
+
+\item \textbf{Memory Agent:} Provides deep historical memory retrieval, classifying memories as recent (< 7 days), durable (long-term), or stale (outdated). After reply generation, it proposes memory updates—structured as preferences, constraints, follow-ups, decisions, and relationship signals—for owner approval.
+\end{itemize}
+
+\subsection{Reply Generation}
+The reply agent synthesizes all sub-agent results, the persona profile (SOUL), business rules (RULE), and conversation history into a final stakeholder-facing response. It applies role-specific tone postures: polite and transparent for customers (never revealing cost data), firm and profit-focused for suppliers, promotional and growth-oriented for investors, and professionally balanced for partners. The agent outputs a structured ReplyOutput including the reply text, confidence level, unverified claims, and tone flags. In effect, the final reply is produced through human-protected collaboration between the owner’s stored profile knowledge and the orchestrated agent pipeline rather than by a single unconstrained model pass.
+
+\subsection{Two-Layer Risk Evaluation}
+
+All outgoing replies undergo a two-layer risk evaluation before dispatch:
+
+\textbf{Layer 1 — Rule-Based (Deterministic):}
+
+A comprehensive set of regex-based detectors checks for: price commitments, delivery guarantees, escalation triggers (lawsuit, breach, recall), confidentiality violations (margin/cost disclosure), PII leakage (credit card numbers, SSNs, API keys), role-based sensitivity violations, policy cross-checks, unverified claims, low-confidence signals, and tone anomalies. Escalation triggers and PII leaks immediately escalate to HIGH risk; multiple flag categories yield MEDIUM; minor flags yield LOW.
+
+\textbf{Layer 2 — LLM Semantic Analysis:}
+
+Triggered only for MEDIUM-risk results from Layer 1, this layer uses an LLM (gpt-4o-mini at temperature 0.0) to detect implied commitments, factual contradictions with sub-agent findings, contextual liability, intent mismatches, and nuanced tone issues. The LLM can upgrade or downgrade the risk level and add semantic flags. If the LLM call fails, the system gracefully falls back to the Layer 1 assessment.
+
+\subsection{Approval Workflow}
+
+Replies assessed as MEDIUM or HIGH risk are held for owner approval. The hold\_for\_approval node persists the draft reply to the held\_replies table and creates a pending\_approvals entry visible on the owner dashboard. The owner can approve (triggering message dispatch) or reject (with an optional reason). All decisions are recorded in reply\_review\_records for audit purposes. Owner-originated messages bypass both approval rules and risk evaluation.
+
+\section{Implementation}
+
+\subsection{Technology Stack}
+
+The system is implemented as a full-stack application with the following technology choices:
+
+\begin{tabular}{|l|l|}
+\hline
+Component & Technology \\
+\hline
+Backend Framework & Python 3.11+, FastAPI 0.110+, Uvicorn \\
+Agent Orchestration & LangGraph 0.3+, LangChain 0.3+ \\
+LLM Providers & OpenAI (gpt-4o-mini default), Google Gemini (gemini-2.0-flash) \\
+Embeddings & OpenAI text-embedding-3-small (1536 dimensions) \\
+Reranking & mixedbread-ai/mxbai-rerank-base-v1 (cross-encoder) \\
+Database & Supabase PostgreSQL with pgvector extension \\
+Frontend & Next.js 16, React 19, TypeScript, TailwindCSS 4 \\
+External Search & Tavily API \\
+Observability & Langfuse tracing with LangChain callback integration \\
+Deployment & Docker + Docker Compose \\
+\hline
+\end{tabular}
+
+\subsection{Data Model and Database Design}
+
+The database schema is implemented in PostgreSQL via Supabase with Row-Level Security (RLS) enforced on all tables using the owner\_id column, supporting multi-tenant isolation. The schema comprises several logical groups:
+\begin{itemize}
+\item \textbf{Core entities:} profiles, customers, suppliers, investors, partners, and external\_identities tables with UUID primary keys and owner\_id foreign keys for multi-tenancy.
+
+\item \textbf{Products and orders:} products (with description\_embedding as pgvector(1536) and HNSW index), orders, supplier\_products, and partner\_agreements with embedding-enabled semantic search.
+\item \textbf{Policy storage:} policy\_chunks with pgvector embeddings, source file tracking, category classification, and hard\_constraint annotation for grounded policy retrieval.
+\item \textbf{Memory and messaging:} conversation\_threads, messages, conversation\_sender\_memories, memory\_entries, conversation\_memories, and memory\_update\_proposals supporting the three-layer memory architecture.
+\item \textbf{Approvals and compliance:} held\_replies, pending\_approvals, reply\_review\_records, and owner\_memory\_rules providing a complete audit trail for all human-in-the-loop decisions.
+\end{itemize}
+\subsection{LangGraph Pipeline Implementation}
+
+The pipeline is implemented as a LangGraph StateGraph with the following node topology: intake → orchestrator → [conditional fan-out to sub-agents via Send() API] → [fan-in aggregation back to orchestrator] → reply → approval\_rules → risk → [conditional: memory\_update or hold\_for\_approval]. The fan-out/fan-in pattern enables parallel execution of independent sub-agents while maintaining state consistency through LangGraph's reducer-based aggregation. The orchestrator loop is bounded by replan cycle limits and task budget guards.
+
+\subsection{Structured Output Enforcement}
+
+All agents produce Pydantic-validated structured outputs (OrchestratorDecision, PolicyDecision, ReplyOutput, RiskJudgement, ResearchSummary, MemoryReadSummary) using LangChain's with\_structured\_output() method. This ensures that downstream pipeline nodes receive well-typed data regardless of LLM output variability. Parsing failures are caught and logged, with fallback mechanisms that prevent pipeline crashes.
+
+\subsection{Fault Tolerance and Circuit Breakers}
+
+The system implements several fault tolerance patterns inspired by the "harness engineering" approach:
+
+\begin{itemize}
+\item \textbf{Error quarantine:} The safe\_agent\_call() wrapper catches exceptions from any sub-agent, classifies the failure type (tool\_failure, logic\_failure, policy\_failure, memory\_failure), and returns a structured failed task dict rather than crashing the pipeline.
+
+\item \textbf{Context compression circuit breaker:} The context compression utility tracks per-thread failure counts and raises a RuntimeError after 3 consecutive failures, preventing runaway token consumption.
+
+\item \textbf{Pipeline guards:} Hard enforcement of MAX\_REPLAN\_CYCLES (2), MAX\_PARALLEL\_TASKS (4), and a 500K token task budget prevents unbounded resource consumption.
+
+\item \textbf{Output sanitization:} Stack traces and internal implementation details are stripped from error outputs via the context quarantine utility before they reach the LLM or end user.
+\end{itemize}
+
+These safeguards reflect a harness-oriented design philosophy: rather than trusting the LLM to behave correctly in all situations, the system constrains, validates, and monitors agent behavior through typed outputs, bounded replanning, error quarantine, audit logging, and fallback paths.
+
+\subsection{Role-Based Access Control Implementation}
+
+RBAC is enforced at the tool-binding level in the retrieval agent. A ROLE\_TOOL\_MAP dictionary maps each stakeholder role to its permitted set of tool functions. At runtime, the retrieval agent calls get\_tools\_for\_role(sender\_role) and binds only the returned functions to the LLM, creating a hard security boundary independent of prompt engineering. The owner role has unrestricted access to all tools. Permission denials are tracked via a thread-safe audit log.
+
+\subsection{API and Frontend}
+
+The backend exposes a RESTful API via FastAPI under the /api/v1 prefix. The primary endpoint (POST /messages/incoming) accepts an incoming message, invokes the full pipeline, and returns the result. Additional endpoints support memory approval/rejection, reply approval/rejection, and review recording. The frontend is a Next.js 16 application with React 19, Supabase real-time integration for live updates, and TanStack React Query for data fetching state management. End-to-end tests are implemented with Playwright.
+
+\section{Results and Analysis}
+\subsection{System Capabilities Demonstrated}
+
+The system demonstrates functional capabilities across the full pipeline:
+
+\begin{itemize}
+\item \textbf{Identity resolution:} Accurate sender classification across five roles (customer, supplier, investor, partner, owner) with identity persistence via the ExternalIdentity table.
+
+\item \textbf{Task decomposition:} Correct decomposition of multi-part queries into parallel subtasks with deterministic routing for known request types and LLM-based planning for novel queries.
+
+\item \textbf{RBAC enforcement:} Successful enforcement of role-based tool restrictions, verified by unit tests for each role.
+
+\item \textbf{Policy evaluation:} Grounded policy verdicts (allowed/disallowed/requires\_approval/not\_covered) with supporting rule citations, validated against manually constructed policy question-answer pairs.
+
+\item \textbf{Risk detection:} Detection of explicit risk patterns (PII, price commitments, escalation triggers) with correct risk level assignment and approval flagging.
+\end{itemize}
+
+\subsection{Test Coverage}
+
+The repository contains a substantial mix of unit tests, integration tests, and evaluation scripts. These tests validate approval rules, discount negotiation, identity resolution, intake-node behavior, deterministic risk rules, semantic risk review, retrieval access control, policy-agent answer quality, and pipeline integration. Importantly, the available evidence is not uniform across all components: some modules are supported by machine-readable evaluation outputs, while others are supported primarily by executable tests and qualitative result figures.
+
+At a high level, the evaluation evidence shows that the system is supported by both executable tests and component-specific evaluation scripts, with the policy agent and retrieval layer receiving the strongest structured evaluation coverage. Taken together, these artifacts support the claim that deterministic constraints are directly testable and that LLM-driven components are embedded within bounded, auditable workflows rather than being left unconstrained. Detailed evaluation artifacts, figures, and test summaries are provided in \hyperref[sec:appendix]{Appendix}, where the implementation-specific details are expanded.
+
+\subsection{Performance Observations}
+
+Several architectural trade-offs merit discussion:
+
+\begin{itemize}
+\item \textbf{RAG quality vs. latency:} The hybrid semantic + lexical search with cross-encoder reranking produces more accurate policy matches than embedding-only retrieval, at the cost of additional latency from the reranking step. The two-stage pipeline (top-K retrieval followed by top-N reranking) balances recall and precision effectively.
+
+\item \textbf{Risk evaluation overhead:} The two-layer risk evaluation adds approximately one additional LLM call for MEDIUM-risk replies. The rule-based layer handles the majority of clear-cut cases (LOW and HIGH) without LLM involvement, reserving the expensive semantic check for ambiguous situations.
+
+\item \textbf{Sub-agent parallelism:} LangGraph's Send() API enables effective sub-agent parallelism. However, the MAX\_PARALLEL\_TASKS limit of 4 prevents context window overflow during fan-in aggregation.
+
+\item \textbf{Memory management:} The three-layer memory architecture with periodic compaction keeps context within token budgets. The 13K token circuit breaker provides a safety margin before hitting model limits.
+\end{itemize}
+\section{Fairness, Responsibility \& Ethics}
+
+\subsection{Potential Biases in the System}
+
+Several sources of bias warrant consideration:
+
+\begin{itemize}
+\item \textbf{LLM Inherent Biases:} The system relies on GPT-4o-mini and Gemini, which inherit biases from training data. These may affect task planning, tone generation, and information synthesis, potentially leading to inequitable communication across users.
+
+\item \textbf{Role-Based Treatment Asymmetry:} The system enforces different access levels and communication styles by role. While intentional, this creates structural asymmetry, and misclassification (e.g., defaulting unknown users to 'customer') may unfairly restrict access.
+
+\item \textbf{Discount Negotiation Fairness:} The evaluate\_discount\_request tool applies fixed quantity-based pricing rules. While consistent, it ignores factors like customer loyalty or history, which may lead to inequitable outcomes.
+
+\item \textbf{Policy Retrieval Bias:} The hybrid RAG pipeline depends on policy coverage and embedding quality. Underrepresented policy areas may result in 'not\_covered' responses for valid queries, effectively limiting service in those cases.
+\end{itemize}
+
+\subsection{Fairness Metrics and Considerations}
+
+We identify the following fairness dimensions relevant to this system:
+
+\begin{itemize}
+\item \textbf{Demographic parity in response quality:} All customers asking the same category of question should receive equivalent response quality and data access, regardless of demographic characteristics inferred from their name, email domain, or communication style.
+
+\item \textbf{Equal opportunity in negotiation outcomes:} Customers with genuinely equivalent needs (e.g., same order size, same product) should receive equal discount offers and policy evaluations.
+
+\item \textbf{Transparency of role-based differentiation:} The system's behavior for each stakeholder role should be explainable and auditable via the reply\_review\_records and held\_replies tables.
+
+\item \textbf{Disparate impact in risk flagging:} If the risk evaluation system disproportionately flags replies to certain sender groups (e.g., queries containing non-English words), this constitutes discriminatory treatment that must be monitored.
+\end{itemize}
+
+Fairness in this system is not limited to demographic bias alone. It also includes procedural fairness: similar requests should be treated consistently, risk flags should not be triggered disproportionately by linguistic style or background, and role-based differentiation should remain justified, transparent, and auditable.
+
+\subsection{Responsible AI Practices Implemented}
+
+The system incorporates several responsible AI mechanisms:
+
+\begin{itemize}
+\item \textbf{Human-in-the-loop oversight:} No reply with MEDIUM or HIGH risk is dispatched without explicit owner review. This ensures that the AI system cannot autonomously make binding commitments, disclose sensitive data, or make promises that the business cannot fulfill.
+
+\item \textbf{Full audit trail:} All reply evaluations, approval decisions, risk assessments, and memory updates are logged to dedicated database tables (reply\_review\_records, held\_replies, pending\_approvals), providing a comprehensive audit trail.
+
+\item \textbf{Grounded and traceable reasoning:} The policy agent grounds its evaluations in specific policy excerpts, citing supporting rules in its output. The reply agent explicitly tracks unverified claims and confidence levels, distinguishing between verified facts and hedged statements.
+
+\item \textbf{Observability:} Langfuse tracing integration enables end-to-end pipeline observability, allowing developers and business owners to inspect the reasoning chain for any response.
+
+\item \textbf{Data minimization:} The context quarantine utility strips internal implementation details from all outputs visible to end users or the LLM, preventing information leakage.
+\end{itemize}
+
+\subsection{Ethical Concerns and Mitigation Strategies}
+
+Several ethical concerns require ongoing attention:
+
+\begin{itemize}
+\item \textbf{Transparency of AI involvement:} The system generates replies on behalf of the owner, so users should be informed they are interacting with AI. Mitigation: Include mandatory AI disclosure in all messages.
+
+\item \textbf{Manipulative communication risks:} Generated responses may unintentionally influence decisions or create false urgency. Mitigation: Extend tone\_flags to detect manipulative or overly persuasive language.
+
+\item \textbf{Privacy and data retention:} The system stores conversations and user profiles, requiring compliance with regulations (e.g., GDPR, CCPA). Mitigation: Support configurable retention policies and data deletion.
+
+\item \textbf{Adversarial prompt injection:} Malicious inputs may attempt to bypass safeguards or extract sensitive data. Mitigation: Enforce RBAC at the tool level and rely on risk evaluation to detect violations.
+\end{itemize}
+
+\section{Extensibility \& Future Work}
+
+\subsection{Current Extensibility Features}
+
+The system supports extensibility through several mechanisms:
+
+\begin{itemize}
+\item \textbf{Modular agent architecture:} New agents (e.g., Legal, Accounting) can be added by defining a function and registering it as a LangGraph node, with the orchestrator automatically delegating tasks.
+
+\item \textbf{Pluggable RBAC:} New roles can be introduced by extending the ROLE\_TOOL\_MAP and corresponding database entities.
+
+\item \textbf{Provider-agnostic LLM integration:} The AI\_PROVIDER configuration supports multiple providers; adding new ones requires extending the get\_chat\_llm() factory.
+
+\item \textbf{Dynamic policy ingestion:} New policy documents can be added and indexed without code changes, with automatic category classification.
+\end{itemize}
+
+\subsection{Proposed Future Directions}
+\begin{itemize}
+\item \textbf{Direction 1:}
+ Adaptive Discount Negotiation with Reinforcement Learning
+
+The current system uses fixed quantity-tiered pricing rules. A reinforcement learning (RL) agent could instead learn optimal pricing strategies from historical negotiations, customer value, and market conditions. The reward function would balance revenue and customer retention, while the action space includes discount levels and bundling strategies. The existing evaluate\_discount\_request tool provides a natural integration point.
+
+\item \textbf{Direction 2:} Multi-Channel Integration and Proactive Outreach
+
+Currently, the system processes messages through a single API. Extending it to support email, messaging platforms (e.g., WhatsApp, Slack), and social media would broaden usability. The memory agent can also enable proactive outreach, such as reminders for pending quotes, invoices, or renewals.
+
+\item \textbf{Direction 3:} Fine-Tuned Domain-Specific Models for Risk and Policy Evaluation
+
+Risk and policy evaluation can be improved using fine-tuned models trained on domain-specific data. A dedicated risk classifier could reduce latency and cost while improving detection accuracy. Similarly, a fine-tuned policy model could enhance retrieval and reasoning beyond the current hybrid RAG pipeline.
+\end{itemize}
+\subsection{Scalability Considerations}
+
+The system's current architecture supports several scaling dimensions:
+\begin{itemize}
+\item \textbf{Multi-tenant deployment:} The PostgreSQL + Supabase backend with RLS supports multiple business owners as isolated tenants via the owner\_id column on all tables.
+\item \textbf{Horizontal sub-agent scaling:} LangGraph's Send() API enables concurrent sub-agent execution. The Redis configuration supports future task queue integration for high-throughput scenarios.
+\item \textbf{Vector search scalability:} The policy agent's pgvector-based retrieval with HNSW indexing scales efficiently to large policy corpora. The embedding and reranking pipeline can be further optimized with batch processing and caching.
+\item \textbf{Context window management:} The context compression utility with token budgeting and the three-layer memory architecture with periodic compaction prevent context window unbounded growth.
+\end{itemize}
+\section{Conclusion}
+
+This report presented a multi-agent orchestration system for managing business communications in solo enterprises. The system integrates supervisor-based coordination, role-based access control, hybrid RAG policy evaluation, two-layer risk governance, and human-in-the-loop approval to ensure reliable and safe responses. Key contributions include: (1) a synthesis-over-delegation orchestrator that reduces hallucinated task assignment; (2) a hybrid semantic-lexical retrieval pipeline with reranking for accurate policy grounding; (3) a two-layer risk evaluation combining rule-based and LLM-based analysis; (4) strict RBAC enforcement at the tool level; and (5) a three-layer memory architecture balancing context and efficiency. More broadly, the project shows how a solo business owner can shift from direct operator to overseer of collaborative agentic workflows.
+
+Overall, the system demonstrates that multi-agent LLM architectures can be effectively deployed in trust-sensitive settings when supported by strong guardrails and human oversight. Future work in adaptive pricing, multi-channel integration, and domain-specific models offers clear paths for further improvement.
+\clearpage
+\section*{References}
+
+\begin{enumerate}
+\item Wooldridge M. An Introduction to MultiAgent Systems. 2nd ed. Chichester: John Wiley \& Sons; 2009.
+
+\item Wu Q, Bansal G, Zhang J, Wu Y, Li B, Zhu E, et al. AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation. arXiv preprint arXiv:2308.08155; 2023.
+
+\item CrewAI. CrewAI: Framework for orchestrating role-playing AI agents [Internet]. 2024. Available from: https://github.com/crewAIInc/crewAI
+
+\item LangChain. LangGraph: Build resilient language agents as graphs [Internet]. 2024. Available from: https://github.com/langchain-ai/langgraph
+
+\item Nau D, Au TC, Ilghami O, Kuter U, Murdock JW, Wu D, et al. SHOP2: An HTN planning system. Journal of Artificial Intelligence Research. 2003;20:379-404.
+
+\item Lewis P, Perez E, Piktus A, Petroni F, Karpukhin V, Goyal N, et al. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. Advances in Neural Information Processing Systems. 2020;33:9459-74.
+
+\item Ma X, Gong Y, He P, Zhao H, Duan N. Query Rewriting for Retrieval-Augmented Large Language Models. arXiv preprint arXiv:2305.14283; 2023.
+
+\item Nogueira R, Jiang Z, Pradeep R, Lin J. Document Ranking with a Pretrained Sequence-to-Sequence Model. Findings of EMNLP. 2020:708-18.
+
+\item Li X, Zhang Y, Stolfo A. mixedbread-ai/mxbai-rerank-base-v1 [Internet]. Hugging Face; 2024. Available from: https://huggingface.co/mixedbread-ai/mxbai-rerank-base-v1
+
+\item NVIDIA. NeMo Guardrails: A Toolkit for Controllable and Safe LLM Applications [Internet]. 2023. Available from: https://github.com/NVIDIA/NeMo-Guardrails
+
+\item Guardrails AI. Guardrails: Adding guardrails to large language models [Internet]. 2024. Available from: https://github.com/guardrails-ai/guardrails
+
+\item NIST. Defense in Depth: A practical strategy for achieving Information Assurance in today's highly networked environments. National Security Agency; 2012.
+
+\item Sandhu RS, Coyne EJ, Feinstein HL, Youman CE. Role-Based Access Control Models. IEEE Computer. 1996;29(2):38-47.
+
+\item Park JS, O'Brien JC, Cai CJ, Morris MR, Liang P, Bernstein MS. Generative Agents: Interactive Simulacra of Human Behavior. Proceedings of the 36th Annual ACM Symposium on User Interface Software and Technology; 2023.
+
+\item Packer C, Wooders S, Lin K, Fang V, Patil SG, Stoica I, et al. MemGPT: Towards LLMs as Operating Systems. arXiv preprint arXiv:2310.08560; 2023.
+
+\item OpenAI. GPT-4 Technical Report. arXiv preprint arXiv:2303.08774; 2023.
+
+\item Supabase. Supabase: The Open Source Firebase Alternative [Internet]. 2024. Available from: https://supabase.com
+
+\item Johnson J, Douze M, Jegou H. Billion-scale similarity search with GPUs. IEEE Transactions on Big Data. 2021;7(3):535-47.
+
+\item Ramírez J, et al. FastAPI: A modern, fast web framework for building APIs with Python [Internet]. 2024. Available from: https://fastapi.tiangolo.com
+
+\item Vercel. Next.js: The React Framework for the Web [Internet]. 2024. Available from: https://nextjs.org
+\end{enumerate}
+
+\clearpage
+\section*{Appendix}
+\label{sec:appendix}
+\addcontentsline{toc}{section}{Appendix} % optional (for TOC)
+
+\subsection{Additional Test Suites}
+
+The following shows the detailed, comprehensive test suite covering unit tests and integration tests in the pipeline:
+
+\begin{itemize}
+\item Approval rule regex pattern matching (test\_approval\_rules.py)
+
+\item Discount negotiation logic with quantity tiers and margin floors (test\_discount\_negotiation.py)
+
+\item Identity resolution for various sender types (test\_identity\_resolution.py)
+
+\item Intake node workflows (test\_intake\_node.py)
+
+\item Rule-based risk evaluation (test\_p2\_risk\_rules.py)
+
+\item Semantic risk evaluation (test\_p2\_semantic.py)
+
+\item Policy RAG retrieval accuracy (\texttt{test\_policy\_tools.py}, \texttt{evaluate\_answers.py})
+
+\item Retrieval Agent SQL retrieval accuracy (\texttt{test\_retrieval\_tools.py}, \texttt{evaluate\_end\_to\_end.py})
+
+\item Full pipeline integration tests (\texttt{test\_pipeline\_integration.py})
+
+\item Error handling and safe agent calls (test\_safe\_agent.py)
+\end{itemize}
+
+
+\subsection{Test Evaluation Results}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{fig1.png}
+    \caption{Metrics for DB search in Retrieval Agent}
+    \label{fig:retrieval-metrics}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{fig2.jpg}
+    \caption{Metrics for RAG in Policy Agent}
+    \label{fig:policy-rag-metrics}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{fig3.jpg}
+    \caption{Metrics for Policy Decisions in Policy Agent}
+    \label{fig:policy-decision-metrics}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{fig4.png}
+    \caption{Metrics for Search Results in Research Agent}
+    \label{fig:research-metrics}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{fig6.png}
+    \caption{Metrics for Reply Generation Results}
+    \label{fig:reply-metrics}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{fig5.png}
+    \caption{Metrics for Risk Classification in Risk Node}
+    \label{fig:risk-metrics}
+\end{figure}
+\end{document}

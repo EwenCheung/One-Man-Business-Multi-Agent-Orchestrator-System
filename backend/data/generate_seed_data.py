@@ -924,80 +924,207 @@ def generate_memory_update_proposals(customers: list[dict[str, Any]]) -> list[di
     rows: list[dict[str, Any]] = []
     for owner_id, owner_customers in by_owner.items():
         pending = next(c for c in owner_customers if _email_suffix(c["email"]) == "A")
-        approved = next(c for c in owner_customers if _email_suffix(c["email"]) == "B")
         owner_label = _owner_label_from_seed_email(pending["email"])
-        pending_content = (
-            "Prefers stock-safe bundle quote, delivery ETA, and final terms in one approval-ready message."
-            if owner_label == "owner1"
-            else "Prefers MOQ, delivery day, and branding options grouped into one reorder-ready reply."
-        )
-        pending_summary = (
-            "Bundle quote + ETA preference"
-            if owner_label == "owner1"
-            else "MOQ + delivery + branding preference"
-        )
-        approved_content = (
-            "Accepted staged billing for larger team-setup orders with standard safeguards."
-            if owner_label == "owner1"
-            else "Accepted standard wholesale payment terms for recurring café packaging orders."
-        )
-        approved_summary = (
-            "Staged billing accepted for team orders"
-            if owner_label == "owner1"
-            else "Wholesale payment terms accepted"
-        )
-        rows.append(
-            {
-                "id": seed_uuid("memory-proposal", owner_id, "pending", pending["id"]),
-                "owner_id": owner_id,
-                "target_table": "customers",
-                "target_id": pending["id"],
-                "proposed_content": json.dumps(
-                    [
+        if owner_label == "owner1":
+            proposals = [
+                {
+                    "kind": "pending-address-name",
+                    "content": [
                         {
                             "sender_id": pending["email"],
                             "sender_name": pending["name"],
                             "sender_role": "customer",
-                            "memory_type": "preference",
-                            "content": pending_content,
-                            "summary": pending_summary,
-                            "tags": ["communication", "preference"],
-                            "importance": 0.72,
+                            "memory_type": "learned_preference",
+                            "content": "Always address the user's name in the first line before giving the answer.",
+                            "summary": "Address the user by name before the reply",
+                            "tags": ["reply-style", "personalization"],
+                            "importance": 0.91,
                         }
                     ],
-                    separators=(",", ":"),
-                ),
-                "reason": "Detected stable sales-communication preference from repeated demo interactions.",
-                "risk_level": "medium",
-                "status": "pending",
-            }
-        )
-        rows.append(
-            {
-                "id": seed_uuid("memory-proposal", owner_id, "approved", approved["id"]),
-                "owner_id": owner_id,
-                "target_table": "customers",
-                "target_id": approved["id"],
-                "proposed_content": json.dumps(
-                    [
+                    "reason": "Owner corrected the assistant to sound more personal and direct in customer-facing replies.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "pending-no-please",
+                    "content": [
                         {
-                            "sender_id": approved["email"],
-                            "sender_name": approved["name"],
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
                             "sender_role": "customer",
-                            "memory_type": "billing",
-                            "content": approved_content,
-                            "summary": approved_summary,
-                            "tags": ["finance"],
-                            "importance": 0.63,
+                            "memory_type": "never_rule",
+                            "content": "Do not say 'please' in routine sales replies; keep the tone confident and concise.",
+                            "summary": "Do not say 'please' in routine sales replies",
+                            "tags": ["tone", "never-rule"],
+                            "importance": 0.95,
                         }
                     ],
-                    separators=(",", ":"),
-                ),
-                "reason": "Owner previously approved this commercial memory update.",
-                "risk_level": "low",
-                "status": "approved",
-            }
-        )
+                    "reason": "Owner wants a firmer commercial tone and explicitly rejected over-polite phrasing.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "pending-no-warm-fluff",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "never_rule",
+                            "content": "Do not say 'happy to help' or other soft filler before the commercial answer.",
+                            "summary": "Do not open with soft filler before the answer",
+                            "tags": ["tone", "never-rule", "opening-line"],
+                            "importance": 0.93,
+                        }
+                    ],
+                    "reason": "Owner wants replies to feel more commercially sharp and less assistant-like.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "pending-owner-voice",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "learned_rule",
+                            "content": "Sound like an owner making a clear business decision, not like a support agent asking for permission.",
+                            "summary": "Reply in owner voice, not support-agent voice",
+                            "tags": ["brand-voice", "reply-style"],
+                            "importance": 0.9,
+                        }
+                    ],
+                    "reason": "Owner wants the assistant to represent the business more decisively in sales threads.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "approved-bundle-rule",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "learned_rule",
+                            "content": "When a buyer asks for pricing, group stock status, delivery ETA, and bundle option into one answer.",
+                            "summary": "Answer pricing with stock, ETA, and bundle option together",
+                            "tags": ["sales-flow", "reply-structure"],
+                            "importance": 0.88,
+                        }
+                    ],
+                    "reason": "Owner previously approved this repeatable quote-handling rule.",
+                    "risk_level": "low",
+                    "status": "approved",
+                },
+            ]
+        else:
+            proposals = [
+                {
+                    "kind": "pending-reorder-format",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "learned_preference",
+                            "content": "For reorder conversations, lead with MOQ, delivery day, and branding option in the first answer.",
+                            "summary": "Lead reorders with MOQ, delivery day, and branding option",
+                            "tags": ["reorder", "reply-style"],
+                            "importance": 0.91,
+                        }
+                    ],
+                    "reason": "Owner wants repeat wholesale replies to be easier to act on without back-and-forth.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "pending-no-overpromise",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "never_rule",
+                            "content": "Do not promise urgent delivery unless stock and print lead time are both confirmed.",
+                            "summary": "Do not promise urgent delivery without stock and print confirmation",
+                            "tags": ["operations", "never-rule"],
+                            "importance": 0.96,
+                        }
+                    ],
+                    "reason": "Owner wants to stop the assistant from overcommitting on café launch timelines.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "pending-no-corporate-tone",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "never_rule",
+                            "content": "Do not use stiff corporate phrases like 'we greatly appreciate your patience' in café-facing replies.",
+                            "summary": "Do not use stiff corporate phrasing in café replies",
+                            "tags": ["tone", "never-rule", "brand-voice"],
+                            "importance": 0.93,
+                        }
+                    ],
+                    "reason": "Owner wants the brand to sound warm and practical, not corporate.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "pending-friendly-direct-tone",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "learned_preference",
+                            "content": "Keep the tone friendly and quick, but move to the decision details in the first two lines.",
+                            "summary": "Be friendly and quick, with decision details early",
+                            "tags": ["tone", "reply-style", "hospitality"],
+                            "importance": 0.89,
+                        }
+                    ],
+                    "reason": "Owner wants café and hospitality replies to stay warm without wasting words.",
+                    "risk_level": "medium",
+                    "status": "pending",
+                },
+                {
+                    "kind": "approved-tone-rule",
+                    "content": [
+                        {
+                            "sender_id": pending["email"],
+                            "sender_name": pending["name"],
+                            "sender_role": "customer",
+                            "memory_type": "learned_rule",
+                            "content": "Keep hospitality replies warm but commercially direct; avoid sounding overly formal.",
+                            "summary": "Keep hospitality replies warm but commercially direct",
+                            "tags": ["tone", "brand-voice"],
+                            "importance": 0.87,
+                        }
+                    ],
+                    "reason": "Owner previously approved this communication rule for café-facing conversations.",
+                    "risk_level": "low",
+                    "status": "approved",
+                },
+            ]
+
+        for proposal in proposals:
+            rows.append(
+                {
+                    "id": seed_uuid("memory-proposal", owner_id, proposal["kind"], pending["id"]),
+                    "owner_id": owner_id,
+                    "target_table": "profiles",
+                    "target_id": owner_id,
+                    "proposed_content": json.dumps(proposal["content"], separators=(",", ":")),
+                    "reason": proposal["reason"],
+                    "risk_level": proposal["risk_level"],
+                    "status": proposal["status"],
+                }
+            )
     return rows
 
 
@@ -1014,13 +1141,20 @@ def generate_pending_approvals(memory_proposals: list[dict[str, Any]]) -> list[d
     for proposal in memory_proposals:
         if proposal["status"] != "pending":
             continue
+        proposed_content = json.loads(proposal["proposed_content"])
+        first_summary = "Detected a stable instruction memory update."
+        if proposed_content:
+            first_item = proposed_content[0]
+            first_summary = str(
+                first_item.get("summary") or first_item.get("content") or first_summary
+            )
         rows.append(
             {
                 "id": seed_uuid("pending-approval", "memory", proposal["id"]),
                 "owner_id": proposal["owner_id"],
                 "title": "Memory update requires review",
                 "sender": "Memory Agent",
-                "preview": "Detected a stable contact preference update.",
+                "preview": first_summary[:200],
                 "proposal_type": "memory-update",
                 "risk_level": proposal["risk_level"],
                 "status": "pending",

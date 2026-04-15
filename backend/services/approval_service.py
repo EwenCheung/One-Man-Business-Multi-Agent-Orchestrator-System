@@ -10,17 +10,7 @@ import uuid
 from typing import Any, cast
 from sqlalchemy import text
 from backend.db.engine import SessionLocal
-
-
-def _format_approved_memory_section(proposed_content: list[dict[str, Any]]) -> str:
-    lines = ["## Approved Memory Updates", ""]
-    for record in proposed_content:
-        memory_type = str(record.get("memory_type") or "memory").strip()
-        summary = str(record.get("summary") or record.get("content") or "").strip()
-        if not summary:
-            continue
-        lines.append(f"- ({memory_type}) {summary}")
-    return "\n".join(lines).strip()
+from backend.services.conversation_memory import merge_profile_memory_records
 
 
 # ─── Memory Approval ───────────────────────────────────────────────
@@ -80,14 +70,10 @@ def approve_memory(proposal_id: str, owner_id: str):
 
         profile = session.query(Profile).filter(Profile.id == owner_uuid).first()
         if profile and proposed_content:
-            approved_section = _format_approved_memory_section(proposed_content)
-            if approved_section:
-                existing_memory = (profile.memory_context or "").strip()
-                profile.memory_context = (
-                    f"{existing_memory}\n\n{approved_section}".strip()
-                    if existing_memory
-                    else approved_section
-                )
+            profile.memory_context = merge_profile_memory_records(
+                profile.memory_context,
+                cast(list[dict[str, object]], proposed_content),
+            )
 
         session.execute(
             text("""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from sqlalchemy import and_, func, select
@@ -33,6 +34,157 @@ def _coerce_uuid(value: str | uuid.UUID | None) -> uuid.UUID | None:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+_PROFILE_MEMORY_SECTION_TITLES = {
+    "preferences": "Learned Preferences",
+    "rules": "Rules from Past Mistakes",
+    "never": "Never Rules",
+}
+
+_PROFILE_MEMORY_SECTION_ORDER = ("preferences", "rules", "never")
+_PROFILE_MEMORY_MAX_ITEMS = 5
+
+
+def _normalize_profile_memory_item(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def _dedupe_profile_memory_items(items: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        normalized = _normalize_profile_memory_item(item)
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(normalized)
+    return out
+
+
+def _classify_profile_memory_line(line: str) -> str:
+    lowered = line.lower()
+    if (
+        lowered.startswith("do not ")
+        or lowered.startswith("never ")
+        or " must not " in f" {lowered} "
+    ):
+        return "never"
+    if any(
+        token in lowered
+        for token in ("prefer", "preference", "style", "tone", "call me", "always use")
+    ):
+        return "preferences"
+    return "rules"
+
+
+def parse_profile_memory(markdown: str | None) -> dict[str, list[str]]:
+    parsed: dict[str, list[str]] = {section: [] for section in _PROFILE_MEMORY_SECTION_ORDER}
+    if not markdown:
+        return parsed
+
+    current_section: str | None = None
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line.startswith("## "):
+            heading = line[3:].strip().lower()
+            current_section = None
+            for section, title in _PROFILE_MEMORY_SECTION_TITLES.items():
+                if heading == title.lower():
+                    current_section = section
+                    break
+            continue
+
+        if line.startswith("# "):
+            continue
+
+        cleaned = line
+        if line.startswith(("- ", "* ")):
+            cleaned = line[2:].strip()
+        elif line[:2].isdigit() and ". " in line:
+            cleaned = line.split(". ", 1)[1].strip()
+
+        target_section = current_section or _classify_profile_memory_line(cleaned)
+        parsed[target_section].append(cleaned)
+
+    for section in _PROFILE_MEMORY_SECTION_ORDER:
+        parsed[section] = _dedupe_profile_memory_items(parsed[section])[:_PROFILE_MEMORY_MAX_ITEMS]
+    return parsed
+
+
+def render_profile_memory(
+    *, preferences: list[str], rules: list[str], never_rules: list[str]
+) -> str:
+    sections = {
+        "preferences": _dedupe_profile_memory_items(preferences)[:_PROFILE_MEMORY_MAX_ITEMS],
+        "rules": _dedupe_profile_memory_items(rules)[:_PROFILE_MEMORY_MAX_ITEMS],
+        "never": _dedupe_profile_memory_items(never_rules)[:_PROFILE_MEMORY_MAX_ITEMS],
+    }
+
+    lines = ["# Long-Term Memory"]
+    for section in _PROFILE_MEMORY_SECTION_ORDER:
+        items = sections[section]
+        if not items:
+            continue
+        lines.append("")
+        lines.append(f"## {_PROFILE_MEMORY_SECTION_TITLES[section]}")
+        lines.append("")
+        lines.extend(f"- {item}" for item in items)
+
+    if len(lines) == 1:
+        lines.extend(["", "No durable learned preferences or rules stored yet."])
+
+    return "\n".join(lines).strip()
+
+
+def merge_profile_memory(
+    existing_memory: str | None,
+    *,
+    learned_preferences: list[str],
+    learned_rules: list[str],
+    never_rules: list[str],
+) -> str:
+    parsed = parse_profile_memory(existing_memory)
+    return render_profile_memory(
+        preferences=parsed["preferences"] + learned_preferences,
+        rules=parsed["rules"] + learned_rules,
+        never_rules=parsed["never"] + never_rules,
+    )
+
+
+def merge_profile_memory_records(
+    existing_memory: str | None, records: list[dict[str, object]]
+) -> str:
+    preferences: list[str] = []
+    rules: list[str] = []
+    never_rules: list[str] = []
+
+    for record in records:
+        summary = _normalize_profile_memory_item(
+            str(record.get("summary") or record.get("content") or "")
+        )
+        if not summary:
+            continue
+        memory_type = str(record.get("memory_type") or "").strip().lower()
+        if memory_type == "never_rule":
+            never_rules.append(summary)
+        elif memory_type == "learned_preference":
+            preferences.append(summary)
+        else:
+            rules.append(summary)
+
+    return merge_profile_memory(
+        existing_memory,
+        learned_preferences=preferences,
+        learned_rules=rules,
+        never_rules=never_rules,
+    )
 
 
 def get_or_create_conversation_thread(

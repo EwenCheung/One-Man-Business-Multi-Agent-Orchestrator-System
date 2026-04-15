@@ -17,6 +17,7 @@ from backend.models.agent_response import AgentResponse
 from backend.services.conversation_memory import (
     get_recent_thread_messages,
     get_sender_summary_threshold,
+    merge_profile_memory,
 )
 from backend.utils.llm_provider import get_chat_llm
 
@@ -48,20 +49,26 @@ Retrieved Records:
 MEMORY_UPDATE_PROMPT = """\
 You are a Memory Update Agent.
 
-Your job is to extract durable business memory from a completed interaction.
+Your job is to extract only the most important long-term instruction memory from a completed interaction.
 
-Extract ONLY high-value memory:
-- preferences
-- constraints
-- unresolved follow-ups
-- decisions / commitments
-- relationship signals
+Only keep memory that will improve future behavior across conversations.
+
+Allowed categories only:
+- learned_preferences -> stable preferences about style, format, tone, naming, or how replies should be handled
+- learned_rules -> rules learned from mistakes, corrections, or explicit future-do-this guidance
+- never_rules -> hard "do not say/do not do" instructions
 
 Do NOT include:
 - greetings
 - filler
 - repeated obvious facts
 - transient noise
+- one-off business details that do not change future behavior
+- customer facts that belong only to sender summaries
+- anything uncertain, weak, or not durable
+
+Keep items abstract, short, and reusable.
+If nothing clearly belongs in these categories, return empty lists.
 
 Return structured output.
 
@@ -140,11 +147,9 @@ class MemoryReadSummary(BaseModel):
 
 
 class MemoryUpdateExtraction(BaseModel):
-    preferences: list[str] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
-    followups: list[str] = Field(default_factory=list)
-    decisions: list[str] = Field(default_factory=list)
-    relationship: list[str] = Field(default_factory=list)
+    learned_preferences: list[str] = Field(default_factory=list)
+    learned_rules: list[str] = Field(default_factory=list)
+    never_rules: list[str] = Field(default_factory=list)
 
 
 RiskLevel = Literal["low", "medium", "high"]
@@ -527,11 +532,9 @@ def _build_memory_records(
                 }
             )
 
-    add_items(extracted.preferences, "preference", 0.85)
-    add_items(extracted.constraints, "constraint", 0.90)
-    add_items(extracted.followups, "follow_up", 0.75)
-    add_items(extracted.decisions, "decision", 0.88)
-    add_items(extracted.relationship, "relationship_signal", 0.70)
+    add_items(extracted.learned_preferences, "learned_preference", 0.84)
+    add_items(extracted.learned_rules, "learned_rule", 0.9)
+    add_items(extracted.never_rules, "never_rule", 0.96)
 
     return records
 
@@ -777,51 +780,6 @@ def memory_update_node(state: dict[str, Any]) -> dict[str, Any]:
                 }
             }
 
-        if (sender_role or "").lower() == "owner":
-            from backend.db.models import Profile
-
-            try:
-                owner_uuid = __import__("uuid").UUID(str(owner_id))
-            except Exception:
-                owner_uuid = owner_id
-            profile = session.query(Profile).filter(Profile.id == owner_uuid).first()
-            if profile:
-                business_desc = profile.business_description or ""
-                prev_mem = profile.memory_context or ""
-
-                llm = get_chat_llm(scope="memory", temperature=0.0)
-                prompt = OWNER_MEMORY_UPDATE_PROMPT.format(
-                    business_description=business_desc,
-                    previous_memory=prev_mem,
-                    raw_message=raw_message,
-                    reply_text=reply_text,
-                    completed_tasks_summary=completed_tasks_summary,
-                )
-                updated_memory = _normalize_text(getattr(llm.invoke(prompt), "content", ""))
-                if updated_memory:
-                    profile.memory_context = updated_memory
-                    profile.updated_at = datetime.now(timezone.utc)
-                    session.commit()
-                    return {
-                        "memory_updates": {
-                            "status": "completed",
-                            "message": "Owner long-term memory updated and compacted.",
-                            "count": 1,
-                            "persisted_to": "profiles.memory_context",
-                        }
-                    }
-
-        sender_summary_update = None
-        if (sender_role or "").lower() != "owner":
-            sender_summary_update = _maybe_refresh_sender_summary(
-                session,
-                owner_id=owner_id,
-                conversation_thread_id=conversation_thread_id,
-                sender_external_id=sender_id,
-                sender_name=sender_name,
-                sender_role=sender_role,
-            )
-
         llm = get_chat_llm(scope="memory", temperature=0.0)
         structured_llm = llm.with_structured_output(MemoryUpdateExtraction)
 
@@ -842,6 +800,58 @@ def memory_update_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             extracted = MemoryUpdateExtraction.model_validate(
                 cast(BaseModel, extracted_raw).model_dump()
+            )
+
+        if (sender_role or "").lower() == "owner":
+            from backend.db.models import Profile
+
+            try:
+                owner_uuid = __import__("uuid").UUID(str(owner_id))
+            except Exception:
+                owner_uuid = owner_id
+            profile = session.query(Profile).filter(Profile.id == owner_uuid).first()
+            if profile:
+                updated_memory = merge_profile_memory(
+                    profile.memory_context,
+                    learned_preferences=extracted.learned_preferences,
+                    learned_rules=extracted.learned_rules,
+                    never_rules=extracted.never_rules,
+                )
+                extracted_count = (
+                    len(extracted.learned_preferences)
+                    + len(extracted.learned_rules)
+                    + len(extracted.never_rules)
+                )
+                if extracted_count:
+                    profile.memory_context = updated_memory
+                    profile.updated_at = datetime.now(timezone.utc)
+                    session.commit()
+                    return {
+                        "memory_updates": {
+                            "status": "completed",
+                            "message": "Owner long-term memory updated with concise learned rules and preferences.",
+                            "count": extracted_count,
+                            "persisted_to": "profiles.memory_context",
+                        }
+                    }
+                return {
+                    "memory_updates": {
+                        "status": "completed",
+                        "message": "No durable learned rules or preferences extracted.",
+                        "count": 0,
+                        "persisted_to": None,
+                    }
+                }
+
+        sender_summary_update = None
+        if (sender_role or "").lower() != "owner":
+            sender_summary_update = _maybe_refresh_sender_summary(
+                session,
+                owner_id=owner_id,
+                conversation_thread_id=conversation_thread_id,
+                sender_external_id=sender_id,
+                sender_name=sender_name,
+                sender_role=sender_role,
             )
 
         records = _build_memory_records(
