@@ -73,7 +73,8 @@ class Settings(BaseSettings):
     # ── Observability ─────────────────────────────────────────
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""
-    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_HOST: str = ""
 
     @field_validator("*", mode="before")
     @classmethod

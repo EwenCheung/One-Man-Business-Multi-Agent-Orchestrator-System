@@ -174,7 +174,7 @@ async def process_incoming_message(
             from langfuse import get_client
             from langfuse.types import TraceContext
 
-            langfuse_client = get_client()
+            langfuse_client = get_client(public_key=settings.LANGFUSE_PUBLIC_KEY)
             trace_context: TraceContext = {"trace_id": str(initial_state["trace_id"])}
             langfuse_trace = langfuse_client.start_as_current_observation(
                 as_type="span",
