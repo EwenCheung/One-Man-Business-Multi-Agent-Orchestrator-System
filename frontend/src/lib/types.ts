@@ -281,6 +281,11 @@ export type OwnerProfileInput = Partial<
   >
 >;
 
+export type OwnerProfileUpdateResult = {
+  profile: OwnerProfile;
+  warning?: string | null;
+};
+
 export type EntityMemory = {
   id: string;
   entity_role: string;

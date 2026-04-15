@@ -14,6 +14,7 @@ import type {
   MyChatThreadResponse,
   OwnerProfile,
   OwnerProfileInput,
+  OwnerProfileUpdateResult,
   OrderDetail,
   OrderRow,
   ProductInput,
@@ -81,7 +82,7 @@ export async function fetchOwnerProfile(): Promise<OwnerProfile | null> {
   return readJson<OwnerProfile | null>(response);
 }
 
-export async function updateOwnerProfile(payload: OwnerProfileInput): Promise<OwnerProfile> {
+export async function updateOwnerProfile(payload: OwnerProfileInput): Promise<OwnerProfileUpdateResult> {
   const response = await fetch("/api/profile", {
     method: "PATCH",
     headers: {
@@ -91,7 +92,7 @@ export async function updateOwnerProfile(payload: OwnerProfileInput): Promise<Ow
     body: JSON.stringify(payload),
   });
 
-  return readJson<OwnerProfile>(response);
+  return readJson<OwnerProfileUpdateResult>(response);
 }
 
 export async function fetchOrders(): Promise<OrderRow[]> {
