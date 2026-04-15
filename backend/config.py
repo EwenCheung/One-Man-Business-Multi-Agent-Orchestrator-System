@@ -6,6 +6,7 @@ Usage:
     print(settings.SUPABASE_DB_URL)
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 
@@ -90,6 +91,13 @@ class Settings(BaseSettings):
         "case_sensitive": True,
         "extra": "ignore",
     }
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip_env_strings(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 # Singleton instance — import this wherever config is needed

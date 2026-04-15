@@ -38,6 +38,16 @@ START_REPLY_TEXT = (
 )
 
 
+def _build_start_reply_text(profile: Profile | None) -> str:
+    business_name = (profile.business_name or "").strip() if profile else ""
+    if business_name:
+        return (
+            f"Hi! I’m the {business_name}'s assistant. You can ask question about products, "
+            "pricing, stock, orders, or support, and I’ll help you here on Telegram."
+        )
+    return START_REPLY_TEXT
+
+
 def _prune_processed_updates() -> None:
     cutoff = time.time() - _DEDUP_TTL_SECONDS
     stale_keys = [key for key, seen_at in _PROCESSED_UPDATE_IDS.items() if seen_at < cutoff]
@@ -184,6 +194,8 @@ def _handle_start_message(incoming: IncomingMessage) -> None:
             sender_name=incoming.sender_name,
             sender_channel="telegram",
         )
+        profile = session.query(Profile).filter_by(id=resolved_identity["owner_id"]).first()
+        start_reply_text = _build_start_reply_text(profile)
         _ = add_message_to_thread(
             session,
             owner_id=resolved_identity["owner_id"],
@@ -202,12 +214,12 @@ def _handle_start_message(incoming: IncomingMessage) -> None:
             sender_name=incoming.sender_name,
             sender_role=resolved_identity["sender_role"],
             direction="outbound",
-            content=START_REPLY_TEXT,
+            content=start_reply_text,
         )
         session.commit()
         if incoming.telegram_chat_id:
             _ = send_telegram_message(
-                resolved_identity["owner_id"], incoming.telegram_chat_id, START_REPLY_TEXT
+                resolved_identity["owner_id"], incoming.telegram_chat_id, start_reply_text
             )
     except Exception as e:
         session.rollback()

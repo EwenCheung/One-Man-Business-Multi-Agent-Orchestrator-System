@@ -69,8 +69,10 @@ def continue_from_orchestrator(state: PipelineState):
         for key in task.get("context_needed", []):
             if key in state:
                 injected[key] = state[key]
-        if "sender_id" in injected and "external_sender_id" in state:
-            injected["external_sender_id"] = state["external_sender_id"]
+        if "sender_id" in state:
+            injected.setdefault("sender_id", state["sender_id"])
+        if "external_sender_id" in state:
+            injected.setdefault("external_sender_id", state["external_sender_id"])
 
         # Attach strictly to the designated isolation boundary
         task["injected_context"] = injected
