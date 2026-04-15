@@ -61,4 +61,3 @@ frontend/test-results/
 *.pid
 .vercel
 .DS_Store
-paper/
