@@ -16,6 +16,7 @@ Two-stage retrieval pipeline for the policy agent:
 """
 
 import logging
+import uuid
 
 from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
@@ -26,6 +27,29 @@ from backend.config import settings
 from backend.db.models import PolicyChunk
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_owner_uuid(value: str | None) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_policy_query_args(
+    first: str,
+    second: str | None,
+    owner_id: str | None,
+) -> tuple[str, uuid.UUID | None]:
+    parsed_owner = _coerce_owner_uuid(owner_id)
+    if parsed_owner is not None:
+        return first, parsed_owner
+
+    maybe_owner = _coerce_owner_uuid(first)
+    if maybe_owner is not None and second is not None:
+        return second, maybe_owner
+
+    return first, None
 
 
 # ─── Stage 2 model — loaded lazily so lightweight runtimes can skip it ───────
@@ -125,9 +149,11 @@ def infer_policy_categories(query: str, sender_role: str | None = None) -> list[
 def search_policy_chunks(
     session: Session,
     query: str,
+    second: str | None = None,
     top_k: int | None = None,
     category: str | None = None,
     categories: list[str] | None = None,
+    owner_id: str | None = None,
 ) -> list[dict[str, object]]:
     """
     Embed the query and retrieve the top-K most similar PolicyChunk rows using
@@ -145,6 +171,7 @@ def search_policy_chunks(
         Fields: chunk_id, chunk_text, source_file, page_number, category,
                 hard_constraint, similarity_score.
     """
+    query, owner_uuid = _parse_policy_query_args(query, second, owner_id)
     k = top_k or settings.POLICY_TOP_K
 
     embedder = OpenAIEmbeddings(
@@ -155,6 +182,8 @@ def search_policy_chunks(
 
     distance_expr = PolicyChunk.embedding.cosine_distance(query_vector)
     q = session.query(PolicyChunk, distance_expr.label("distance"))
+    if owner_uuid is not None:
+        q = q.filter(PolicyChunk.owner_id == owner_uuid)
     if category:
         q = q.filter(PolicyChunk.category == category)
     elif categories:
@@ -182,9 +211,12 @@ def search_policy_chunks(
 def search_policy_chunks_lexical(
     session: Session,
     query: str,
+    second: str | None = None,
     top_k: int | None = None,
     categories: list[str] | None = None,
+    owner_id: str | None = None,
 ) -> list[dict[str, object]]:
+    query, owner_uuid = _parse_policy_query_args(query, second, owner_id)
     k = top_k or settings.POLICY_TOP_K
     terms = [part.strip() for part in query.split() if part.strip()]
     if not terms:
@@ -215,7 +247,10 @@ def search_policy_chunks_lexical(
     for term_score in score_terms[1:]:
         score = score + term_score
 
-    query_builder = session.query(PolicyChunk, score.label("lexical_score")).filter(or_(*filters))
+    query_builder = session.query(PolicyChunk, score.label("lexical_score"))
+    if owner_uuid is not None:
+        query_builder = query_builder.filter(PolicyChunk.owner_id == owner_uuid)
+    query_builder = query_builder.filter(or_(*filters))
     if categories:
         query_builder = query_builder.filter(PolicyChunk.category.in_(categories))
 

@@ -1,4 +1,5 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { resolveAuthenticatedStakeholder } from "@/lib/stakeholder-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import ChatClient from "@/app/chat/chat-client";
@@ -13,18 +14,14 @@ type InvestorProductRow = {
 export default async function InvestorDashboardPage() {
   const auth = await getAuthenticatedClient();
   if (!auth) redirect("/login");
-  
-  if (auth.user.user_metadata?.role !== "investor") {
-    return <p className="p-8 text-red-600">Unauthorized. You are not an investor.</p>;
-  }
 
   const admin = createAdminClient();
   const { user } = auth;
-  const { data: investorData } = await admin
-    .from("investors")
-    .select("id, owner_id")
-    .or([user.email ? `email.eq.${user.email}` : null, user.phone ? `phone.eq.${user.phone}` : null].filter(Boolean).join(","))
-    .single();
+  const resolved = await resolveAuthenticatedStakeholder(admin, user);
+  if (!resolved || resolved.role !== "investor") {
+    return <p className="p-8 text-red-600">Unauthorized. You are not an investor.</p>;
+  }
+  const investorData = resolved.stakeholder;
   const { data } = await admin
     .from("products")
     .select("name, selling_price, cost_price, stock_number")

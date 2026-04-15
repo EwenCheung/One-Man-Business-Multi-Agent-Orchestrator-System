@@ -1,4 +1,5 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { resolveAuthenticatedStakeholder } from "@/lib/stakeholder-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import CustomerClient from "./customer-client";
@@ -24,28 +25,14 @@ type CustomerProductRow = {
 export default async function CustomerDashboardPage() {
   const auth = await getAuthenticatedClient();
   if (!auth) redirect("/login");
-  
-  if (auth.user.user_metadata?.role !== "customer") {
-    return <p className="p-8 text-red-600">Unauthorized. You are not a customer.</p>;
-  }
 
   const { user } = auth;
   const admin = createAdminClient();
-  const telegramUsername = user.email?.endsWith("@telegram.local")
-    ? user.email.slice(0, -"@telegram.local".length)
-    : null;
-  const filters = [
-    user.email ? `email.eq.${user.email}` : null,
-    user.phone ? `phone.eq.${user.phone}` : null,
-    telegramUsername ? `telegram_username.ilike.${telegramUsername}` : null,
-  ].filter(Boolean);
-  
-  const { data: customerData } = await admin
-    .from("customers")
-    .select("id, owner_id")
-    .or(filters.join(","))
-    .limit(1)
-    .single();
+  const resolved = await resolveAuthenticatedStakeholder(admin, user);
+  if (!resolved || resolved.role !== "customer") {
+    return <p className="p-8 text-red-600">Unauthorized. You are not a customer.</p>;
+  }
+  const customerData = resolved?.stakeholder ?? null;
 
   let orders: CustomerOrderRow[] = [];
   if (customerData) {

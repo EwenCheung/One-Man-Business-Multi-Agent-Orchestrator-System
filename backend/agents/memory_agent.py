@@ -4,7 +4,8 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal, Mapping, cast
+from collections.abc import Mapping
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -172,25 +173,31 @@ def _json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str, indent=2)
 
 
-def _get_owner_id_from_state(state: Mapping[str, Any]) -> str | None:
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, object], value)
+    return {}
+
+
+def _get_owner_id_from_state(state: Mapping[str, object]) -> str | None:
     if state.get("owner_id"):
         return str(state["owner_id"])
 
-    injected = state.get("injected_context", {}) or {}
+    injected = _as_mapping(state.get("injected_context", {}))
     if injected.get("owner_id"):
         return str(injected["owner_id"])
 
     return None
 
 
-def _get_sender_id_from_state(state: Mapping[str, Any]) -> str | None:
+def _get_sender_id_from_state(state: Mapping[str, object]) -> str | None:
     if state.get("external_sender_id"):
         return str(state["external_sender_id"])
 
     if state.get("sender_id"):
         return str(state["sender_id"])
 
-    injected = state.get("injected_context", {}) or {}
+    injected = _as_mapping(state.get("injected_context", {}))
     if injected.get("external_sender_id"):
         return str(injected["external_sender_id"])
 
@@ -200,29 +207,29 @@ def _get_sender_id_from_state(state: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _get_sender_role_from_state(state: Mapping[str, Any]) -> str | None:
+def _get_sender_role_from_state(state: Mapping[str, object]) -> str | None:
     if state.get("sender_role"):
         return str(state["sender_role"])
 
-    injected = state.get("injected_context", {}) or {}
+    injected = _as_mapping(state.get("injected_context", {}))
     if injected.get("sender_role"):
         return str(injected["sender_role"])
 
     return None
 
 
-def _get_sender_name_from_state(state: Mapping[str, Any]) -> str | None:
+def _get_sender_name_from_state(state: Mapping[str, object]) -> str | None:
     if state.get("sender_name"):
         return str(state["sender_name"])
 
-    injected = state.get("injected_context", {}) or {}
+    injected = _as_mapping(state.get("injected_context", {}))
     if injected.get("sender_name"):
         return str(injected["sender_name"])
 
     return None
 
 
-def _get_conversation_thread_id_from_state(state: Mapping[str, Any]) -> str | None:
+def _get_conversation_thread_id_from_state(state: Mapping[str, object]) -> str | None:
     if state.get("conversation_thread_id"):
         return str(state["conversation_thread_id"])
 
@@ -234,7 +241,7 @@ def _get_conversation_thread_id_from_state(state: Mapping[str, Any]) -> str | No
         except (ValueError, TypeError):
             pass
 
-    injected = state.get("injected_context", {}) or {}
+    injected = _as_mapping(state.get("injected_context", {}))
     if injected.get("conversation_thread_id"):
         return str(injected["conversation_thread_id"])
 
@@ -249,16 +256,20 @@ def _get_conversation_thread_id_from_state(state: Mapping[str, Any]) -> str | No
     return None
 
 
-def _safe_completed_tasks_summary(state: Mapping[str, Any]) -> str:
-    completed_tasks = state.get("completed_tasks", [])
+def _safe_completed_tasks_summary(state: Mapping[str, object]) -> str:
+    completed_tasks_raw = state.get("completed_tasks", [])
+    completed_tasks = completed_tasks_raw if isinstance(completed_tasks_raw, list) else []
     if not completed_tasks:
         return ""
 
     parts: list[str] = []
     for task in completed_tasks:
-        task_id = task.get("task_id", "?")
-        assignee = task.get("assignee", "?")
-        result = _normalize_text(task.get("result", ""))
+        if not isinstance(task, Mapping):
+            continue
+        task_map = cast(Mapping[str, object], task)
+        task_id = task_map.get("task_id", "?")
+        assignee = task_map.get("assignee", "?")
+        result = _normalize_text(task_map.get("result", ""))
         parts.append(f"Task {task_id} ({assignee}): {result}")
     return "\n".join(parts)
 
@@ -269,7 +280,11 @@ def _safe_completed_tasks_summary(state: Mapping[str, Any]) -> str:
 
 
 def _search_messages(
-    session: Session, owner_id: str, query: str, sender_id: str | None = None
+    session: Session,
+    owner_id: str,
+    query: str,
+    sender_id: str | None = None,
+    sender_role: str | None = None,
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT id, sender_id, sender_name, sender_role, direction, content, created_at
@@ -282,9 +297,14 @@ def _search_messages(
         "query": f"%{query}%",
     }
 
-    if sender_id:
-        sql += " AND (sender_id = :sender_id OR sender_id IS NULL)"
+    normalized_role = (sender_role or "").strip().lower()
+    if normalized_role == "owner":
+        pass
+    elif sender_id:
+        sql += " AND sender_id = :sender_id"
         params["sender_id"] = sender_id
+    else:
+        return []
 
     sql += " ORDER BY created_at DESC LIMIT 8"
 
@@ -293,7 +313,11 @@ def _search_messages(
 
 
 def _search_memory_entries(
-    session: Session, owner_id: str, query: str, sender_id: str | None = None
+    session: Session,
+    owner_id: str,
+    query: str,
+    sender_id: str | None = None,
+    sender_role: str | None = None,
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT id, sender_id, sender_name, sender_role, memory_type, content, summary, tags, importance, created_at
@@ -309,9 +333,14 @@ def _search_memory_entries(
         "query": f"%{query}%",
     }
 
-    if sender_id:
-        sql += " AND (sender_id = :sender_id OR sender_id IS NULL)"
+    normalized_role = (sender_role or "").strip().lower()
+    if normalized_role == "owner":
+        pass
+    elif sender_id:
+        sql += " AND sender_id = :sender_id"
         params["sender_id"] = sender_id
+    else:
+        return []
 
     sql += " ORDER BY created_at DESC LIMIT 8"
 
@@ -403,7 +432,7 @@ def _insert_memory_proposal(
     reason: str,
 ) -> str:
     import uuid
-    from backend.db.models import MemoryUpdateProposal
+    from backend.db.models import MemoryUpdateProposal, PendingApproval
 
     try:
         owner_uuid = uuid.UUID(str(owner_id))
@@ -422,6 +451,29 @@ def _insert_memory_proposal(
     )
     session.add(obj)
     session.flush()
+
+    existing_pending = (
+        session.query(PendingApproval).filter(PendingApproval.proposal_id == prop_id).first()
+    )
+    if existing_pending is None:
+        preview = ""
+        if proposed_records:
+            first_record = proposed_records[0]
+            preview = str(first_record.get("summary") or first_record.get("content") or "")[:200]
+
+        session.add(
+            PendingApproval(
+                id=uuid.uuid4(),
+                owner_id=owner_uuid,
+                title=f"Memory update requires approval ({risk_level} risk)",
+                sender=sender_name or "Unknown",
+                preview=preview,
+                proposal_type="memory",
+                risk_level=risk_level,
+                status="pending",
+                proposal_id=prop_id,
+            )
+        )
     return str(prop_id)
 
 
@@ -622,6 +674,7 @@ def memory_read_node(task: SubTask) -> dict[str, list[dict[str, Any]]]:
         description = _normalize_text(task.get("description", ""))
         owner_id = _get_owner_id_from_state(task)
         sender_id = _get_sender_id_from_state(task)
+        sender_role = _get_sender_role_from_state(task)
 
         if not owner_id:
             completed_task["status"] = "failed"
@@ -635,8 +688,8 @@ def memory_read_node(task: SubTask) -> dict[str, list[dict[str, Any]]]:
             completed_task["result"] = "Memory read failed: missing task description."
             return {"completed_tasks": [completed_task]}
 
-        messages = _search_messages(session, owner_id, description, sender_id)
-        memories = _search_memory_entries(session, owner_id, description, sender_id)
+        messages = _search_messages(session, owner_id, description, sender_id, sender_role)
+        memories = _search_memory_entries(session, owner_id, description, sender_id, sender_role)
 
         retrieved_records = _format_retrieved_records(messages, memories)
 
@@ -726,6 +779,7 @@ def memory_update_node(state: dict[str, Any]) -> dict[str, Any]:
 
         if (sender_role or "").lower() == "owner":
             from backend.db.models import Profile
+
             try:
                 owner_uuid = __import__("uuid").UUID(str(owner_id))
             except Exception:
@@ -734,7 +788,7 @@ def memory_update_node(state: dict[str, Any]) -> dict[str, Any]:
             if profile:
                 business_desc = profile.business_description or ""
                 prev_mem = profile.memory_context or ""
-                
+
                 llm = get_chat_llm(scope="memory", temperature=0.0)
                 prompt = OWNER_MEMORY_UPDATE_PROMPT.format(
                     business_description=business_desc,
@@ -746,17 +800,16 @@ def memory_update_node(state: dict[str, Any]) -> dict[str, Any]:
                 updated_memory = _normalize_text(getattr(llm.invoke(prompt), "content", ""))
                 if updated_memory:
                     profile.memory_context = updated_memory
-                    profile.updated_at = _utc_now()
+                    profile.updated_at = datetime.now(timezone.utc)
                     session.commit()
                     return {
                         "memory_updates": {
                             "status": "completed",
                             "message": "Owner long-term memory updated and compacted.",
                             "count": 1,
-                            "persisted_to": "profiles.memory_context"
+                            "persisted_to": "profiles.memory_context",
                         }
                     }
-
 
         sender_summary_update = None
         if (sender_role or "").lower() != "owner":

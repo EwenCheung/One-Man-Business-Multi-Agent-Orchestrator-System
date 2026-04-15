@@ -1,4 +1,5 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { resolveAuthenticatedStakeholder } from "@/lib/stakeholder-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 
@@ -13,19 +14,15 @@ type SupplierContractRow = {
 export default async function SupplierDashboardPage() {
   const auth = await getAuthenticatedClient();
   if (!auth) redirect("/login");
-  
-  if (auth.user.user_metadata?.role !== "supplier") {
-    return <p className="p-8 text-red-600">Unauthorized. You are not a supplier.</p>;
-  }
 
   const { user } = auth;
   const admin = createAdminClient();
-  
-  const { data: supplierData } = await admin
-    .from("suppliers")
-    .select("id, owner_id")
-    .or([user.email ? `email.eq.${user.email}` : null, user.phone ? `phone.eq.${user.phone}` : null].filter(Boolean).join(","))
-    .single();
+
+  const resolved = await resolveAuthenticatedStakeholder(admin, user);
+  if (!resolved || resolved.role !== "supplier") {
+    return <p className="p-8 text-red-600">Unauthorized. You are not a supplier.</p>;
+  }
+  const supplierData = resolved.stakeholder;
 
   let contracts: SupplierContractRow[] = [];
   if (supplierData) {
@@ -56,10 +53,11 @@ export default async function SupplierDashboardPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {contracts.map((c, i) => {
+            {contracts.map((c) => {
               const product = Array.isArray(c.products) ? c.products[0] : c.products;
+              const rowKey = `${product?.name ?? "Unknown"}-${c.contract_end ?? "none"}-${c.supply_price ?? "na"}-${c.stock_we_buy ?? "na"}`;
               return (
-                <tr key={i} className="hover:bg-zinc-50/50">
+                <tr key={rowKey} className="hover:bg-zinc-50/50">
                   <td className="px-6 py-4 font-medium text-zinc-900">{product?.name || "Unknown"}</td>
                   <td className="px-6 py-4">${c.supply_price}</td>
                   <td className="px-6 py-4">{c.stock_we_buy}</td>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedClient } from "@/lib/api";
 import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
+import { resolveAuthenticatedStakeholder } from "@/lib/stakeholder-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { randomUUID } from "crypto";
 
@@ -9,11 +10,12 @@ export async function POST(req: Request) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { user } = auth;
-  if (user.user_metadata?.role !== "customer") {
-    return NextResponse.json({ error: "Only customers can buy" }, { status: 403 });
-  }
-
   const admin = createAdminClient();
+  const resolved = await resolveAuthenticatedStakeholder(admin, user);
+  if (!resolved || resolved.role !== "customer") {
+    return NextResponse.json({ error: "Customer record not found" }, { status: 404 });
+  }
+  const sessionCustomer = resolved.stakeholder;
 
   const { productId, customerId, quantity } = await req.json();
 
@@ -31,16 +33,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Customer not found" }, { status: 404 });
   }
 
-  const sessionEmail = user.email?.toLowerCase() || null;
-  const sessionPhone = user.phone || null;
-  const sessionTelegramUsername = sessionEmail?.endsWith("@telegram.local")
-    ? sessionEmail.slice(0, -"@telegram.local".length)
-    : null;
-
-  const matchesCustomer =
-    (sessionEmail && customer.email?.toLowerCase() === sessionEmail) ||
-    (sessionPhone && customer.phone === sessionPhone) ||
-    (sessionTelegramUsername && customer.telegram_username?.toLowerCase() === sessionTelegramUsername);
+  const matchesCustomer = sessionCustomer.id === customer.id;
 
   if (!matchesCustomer) {
     return NextResponse.json({ error: "Customer mismatch" }, { status: 403 });

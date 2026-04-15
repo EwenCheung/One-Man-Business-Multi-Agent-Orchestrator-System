@@ -22,7 +22,17 @@ from backend.services.conversation_memory import (
 )
 
 
-DEFAULT_SOUL_CONTEXT = "Use a professional, confident, and helpful business tone."
+DEFAULT_SOUL_CONTEXT = (
+    "# SOUL\n\n"
+    "## Identity\n\n"
+    "You are the business's owner-side operator: direct, strategic, calm, and concise. "
+    "Optimize for owner benefit, clarity, and action.\n\n"
+    "## Voice\n\n"
+    "- Be practical and to the point.\n"
+    "- Lead with the useful answer.\n"
+    "- Ask or verify before promising anything uncertain.\n"
+    "- Stay helpful, professional, and owner-first."
+)
 DEFAULT_RULES_CONTEXT = (
     "Apply conservative business-safe defaults. Do not reveal sensitive data, "
     "do not make unsupported commitments, and prefer approval for uncertain cases."
@@ -58,15 +68,26 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     try:
         requested_thread_id = str(state.get("thread_id") or "").strip() or None
 
-        resolved_identity = resolve_or_create_sender(
-            session,
-            external_sender_id,
-            sender_name,
-            aliases=aliases if aliases else None,
-            telegram_username=str(telegram_username) if telegram_username else None,
-            telegram_chat_id=str(telegram_chat_id) if telegram_chat_id else None,
-            owner_id=owner_id,
-        )
+        try:
+            if aliases or telegram_username or telegram_chat_id:
+                resolved_identity = resolve_or_create_sender(
+                    session,
+                    external_sender_id,
+                    sender_name,
+                    aliases=aliases if aliases else None,
+                    telegram_username=str(telegram_username) if telegram_username else None,
+                    telegram_chat_id=str(telegram_chat_id) if telegram_chat_id else None,
+                    owner_id=owner_id,
+                )
+            else:
+                resolved_identity = resolve_or_create_sender(
+                    session,
+                    external_sender_id,
+                    sender_name,
+                    owner_id=owner_id,
+                )
+        except TypeError:
+            resolved_identity = resolve_or_create_sender(session, external_sender_id, sender_name)
         sender_role = resolved_identity["sender_role"]
         sender_id = resolved_identity["sender_id"]
         entity_id = resolved_identity["entity_id"]
@@ -115,6 +136,7 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
                 owner_id=owner_id_to_use,
                 conversation_thread_id=thread.id,
                 sender_external_id=external_sender_id,
+                sender_role=sender_role,
             )
             short_term_raw = memory_layers.get("short_term_memory")
             short_term = (
@@ -162,7 +184,8 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     soul = profile_contexts["soul_context"] or DEFAULT_SOUL_CONTEXT
     rules = profile_contexts["rule_context"] or DEFAULT_RULES_CONTEXT
     if profile_contexts["memory_context"]:
-        long_term = profile_contexts["memory_context"]
+        profile_memory = f"Owner Memory Context:\n{profile_contexts['memory_context']}"
+        long_term = f"{profile_memory}\n\n{long_term}" if long_term else profile_memory
     if profile_contexts.get("business_description"):
         long_term = (
             f"Business Description:\n{profile_contexts['business_description']}\n\n" + long_term

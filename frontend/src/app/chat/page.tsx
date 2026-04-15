@@ -1,9 +1,27 @@
 import ChatClient from "./chat-client";
 import { getAuthenticatedClient } from "@/lib/api";
+import { resolveAuthenticatedStakeholder, type StakeholderRole } from "@/lib/stakeholder-auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function ChatPage() {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
-  const role = auth?.user?.user_metadata?.role || "owner";
+  let role: StakeholderRole | "owner" = "owner";
+
+  if (auth?.user) {
+    const admin = createAdminClient();
+    const { data: ownerProfile } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("id", auth.user.id)
+      .maybeSingle();
+
+    if (!ownerProfile?.id) {
+      const resolved = await resolveAuthenticatedStakeholder(admin, auth.user);
+      if (resolved) {
+        role = resolved.role;
+      }
+    }
+  }
 
   if (role === "customer") {
     return (

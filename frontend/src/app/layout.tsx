@@ -1,6 +1,8 @@
 import "./globals.css";
 import ShellBoundary from "@/components/shell-boundary";
 import { getAuthenticatedClient } from "@/lib/api";
+import { resolveAuthenticatedStakeholder, type StakeholderRole } from "@/lib/stakeholder-auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { QueryProvider } from "@/providers/query-provider";
 import type { ReactNode } from "react";
 
@@ -15,7 +17,23 @@ export default async function RootLayout({
   children: ReactNode;
 }) {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
-  const role = auth?.user?.user_metadata?.role || "owner";
+  let role: StakeholderRole | "owner" = "owner";
+
+  if (auth?.user) {
+    const admin = createAdminClient();
+    const { data: ownerProfile } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("id", auth.user.id)
+      .maybeSingle();
+
+    if (!ownerProfile?.id) {
+      const resolved = await resolveAuthenticatedStakeholder(admin, auth.user);
+      if (resolved) {
+        role = resolved.role;
+      }
+    }
+  }
 
   return (
     <html lang="en">

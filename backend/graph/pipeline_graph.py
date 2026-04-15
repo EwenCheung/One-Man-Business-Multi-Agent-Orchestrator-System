@@ -69,6 +69,10 @@ def continue_from_orchestrator(state: PipelineState):
         for key in task.get("context_needed", []):
             if key in state:
                 injected[key] = state[key]
+        if "owner_id" in state:
+            injected.setdefault("owner_id", state["owner_id"])
+        if "sender_role" in state:
+            injected.setdefault("sender_role", state["sender_role"])
         if "sender_id" in state:
             injected.setdefault("sender_id", state["sender_id"])
         if "external_sender_id" in state:

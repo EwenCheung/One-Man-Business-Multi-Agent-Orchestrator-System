@@ -1,8 +1,52 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { roleTableMap, stakeholderRoles, type StakeholderRole } from "@/lib/stakeholder-config";
 import type { StakeholderSwitchInput } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+
+async function syncAuthRolesForStakeholder(
+  supabase: SupabaseClient,
+  ownerId: string,
+  sourceRole: StakeholderRole,
+  sourceId: string,
+  targetRole: StakeholderRole,
+) {
+  const { data: identities, error } = await supabase
+    .from("external_identities")
+    .select("identity_metadata")
+    .eq("owner_id", ownerId)
+    .eq("entity_role", sourceRole.slice(0, -1))
+    .eq("entity_id", sourceId);
+
+  if (error || !identities?.length) {
+    return error?.message ?? null;
+  }
+
+  const nextRole = targetRole.slice(0, -1);
+  for (const identity of identities) {
+    const userId = identity.identity_metadata?.supabase_user_id;
+    if (!userId) continue;
+
+    const current = await supabase.auth.admin.getUserById(userId);
+    if (current.error || !current.data.user) {
+      return current.error?.message ?? "Failed to load auth user.";
+    }
+
+    const update = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...(current.data.user.user_metadata ?? {}),
+        role: nextRole,
+        owner_id: ownerId,
+      },
+    });
+    if (update.error) {
+      return update.error.message;
+    }
+  }
+
+  return null;
+}
 
 async function getStakeholderDependencyError(
   supabase: SupabaseClient,
@@ -85,6 +129,7 @@ function pickTargetPayload(source: Record<string, unknown>, targetRole: Stakehol
 
 export async function POST(request: Request) {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
+  const admin = createAdminClient();
 
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -162,6 +207,21 @@ export async function POST(request: Request) {
       .eq("entity_id", targetRow.id);
     await auth.supabase.from(targetTable).delete().eq("owner_id", auth.user.id).eq("id", targetRow.id);
     return NextResponse.json({ error: sourceDelete.error.message }, { status: 400 });
+  }
+
+  const authSyncError = await syncAuthRolesForStakeholder(
+    admin,
+    auth.user.id,
+    payload.sourceRole,
+    payload.sourceId,
+    payload.targetRole
+  );
+
+  if (authSyncError) {
+    return NextResponse.json(
+      { ...targetRow, role: payload.targetRole, warning: `Role switched, but auth role sync failed: ${authSyncError}` },
+      { status: 200 }
+    );
   }
 
   return NextResponse.json({ ...targetRow, role: payload.targetRole });

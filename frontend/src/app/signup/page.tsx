@@ -34,9 +34,9 @@ export default function SignupPage() {
     }
 
     if (data?.user) {
-      const initialMemory = `# Long-Term Memory\n\nContext for ${businessName}. This document stores the evolving business history and context over time.`;
-      const initialSoul = `# System Persona\n\nYou are a proactive and strategic agent acting on behalf of ${fullName} for ${businessName}. You anticipate needs, analyze data intelligently, and communicate clearly.`;
-      const initialRule = `# Business Rules\n\nDefault operational rules for ${businessName}. Adhere to these constraints in all negotiations and logic.`;
+      const initialMemory = `# Long-Term Memory\n\nContext for ${businessName}. This document stores evolving business history, important decisions, and stable stakeholder preferences over time.`;
+      const initialSoul = `# SOUL\n\n## Identity\n\nYou are the business's owner-side operator for ${fullName} and ${businessName}: direct, strategic, calm, and concise. Optimize for owner benefit, clarity, and action.\n\n## Voice\n\n- Be practical and to the point.\n- Lead with the useful answer.\n- Ask or verify before promising anything uncertain.\n- Stay helpful, professional, and owner-first.`;
+      const initialRule = `# Business Rules\n\nDefault operational rules for ${businessName}. Follow privacy, pricing, approval, and escalation constraints strictly. Do not make unsupported commitments or invent facts.`;
 
       await supabase.from("profiles").upsert({
         id: data.user.id,

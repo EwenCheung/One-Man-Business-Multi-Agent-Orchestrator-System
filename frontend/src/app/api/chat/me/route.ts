@@ -1,13 +1,7 @@
 import { getAuthenticatedClient } from "@/lib/api";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveAuthenticatedStakeholder, stakeholderSenderExternalId } from "@/lib/stakeholder-auth";
 import { NextResponse } from "next/server";
-
-const stakeholderTableByRole = {
-  customer: "customers",
-  supplier: "suppliers",
-  partner: "partners",
-  investor: "investors",
-} as const;
 
 export async function GET() {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
@@ -16,40 +10,15 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const role = auth.user.user_metadata?.role || "owner";
   const admin = createAdminClient();
+  const resolved = await resolveAuthenticatedStakeholder(admin, auth.user);
 
-  if (role === "owner") {
+  if (!resolved) {
     return NextResponse.json({ error: "Owner uses owner chat endpoints" }, { status: 400 });
   }
+  const { stakeholder } = resolved;
 
-  const table = stakeholderTableByRole[role as keyof typeof stakeholderTableByRole];
-  if (!table) {
-    return NextResponse.json({ error: "Unsupported chat role" }, { status: 403 });
-  }
-
-  const telegramUsername = auth.user.email?.endsWith("@telegram.local")
-    ? auth.user.email.slice(0, -"@telegram.local".length)
-    : null;
-  const filters = [
-    auth.user.email && !telegramUsername ? `email.eq.${auth.user.email}` : null,
-    auth.user.phone ? `phone.eq.${auth.user.phone}` : null,
-    telegramUsername ? `telegram_username.ilike.${telegramUsername}` : null,
-  ].filter(Boolean);
-
-  const { data: stakeholder, error: stakeholderError } = await admin
-    .from(table)
-    .select("id, owner_id, name, email, phone, telegram_username")
-    .or(filters.join(","))
-    .limit(1)
-    .single();
-
-  if (stakeholderError || !stakeholder) {
-    return NextResponse.json({ error: "Stakeholder record not found" }, { status: 404 });
-  }
-
-  const senderExternalId =
-    stakeholder.email || stakeholder.phone || stakeholder.telegram_username || auth.user.email || auth.user.id;
+  const senderExternalId = stakeholderSenderExternalId(stakeholder, auth.user);
 
   const { data: thread } = await admin
     .from("conversation_threads")

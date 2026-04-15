@@ -73,14 +73,16 @@ def _role_model_pairs() -> list[tuple[str, type]]:
     ]
 
 
-def _find_existing_entity_by_uuid(session: Session, candidate_id: str) -> dict[str, Any] | None:
+def _find_existing_entity_by_uuid(
+    session: Session, owner_uuid: uuid.UUID, candidate_id: str
+) -> dict[str, Any] | None:
     try:
         candidate_uuid = uuid.UUID(str(candidate_id))
     except (ValueError, TypeError):
         return None
 
     for role, model in _role_model_pairs():
-        row = session.query(model).filter_by(id=candidate_uuid).first()
+        row = session.query(model).filter_by(owner_id=owner_uuid, id=candidate_uuid).first()
         if row:
             return {
                 "entity_role": role,
@@ -178,7 +180,21 @@ def _is_owner_identity(
     external_type: str,
     normalized_external_id: str,
 ) -> bool:
-    """Check if the incoming sender identity matches the owner UUID or email."""
+    """Check if the incoming sender identity matches the owner UUID, email, or mapped owner identity."""
+
+    mapped_owner_identity = (
+        session.query(ExternalIdentity)
+        .filter_by(
+            owner_id=owner_uuid,
+            external_type=external_type,
+            external_id=normalized_external_id,
+            entity_role="owner",
+            entity_id=owner_uuid,
+        )
+        .first()
+    )
+    if mapped_owner_identity:
+        return True
 
     # Case 1: Sender ID matches owner UUID
     if _looks_like_uuid(external_sender_id):
@@ -213,6 +229,7 @@ def _is_owner_identity(
 def _create_supabase_auth_user(
     normalized_external_id: str,
     external_type: str,
+    owner_id: str,
 ) -> str | None:
     if not settings.AUTO_CREATE_SUPABASE_AUTH_USERS:
         return None
@@ -225,7 +242,7 @@ def _create_supabase_auth_user(
     try:
         user_params: AdminUserAttributes = {
             "password": secrets.token_urlsafe(32),
-            "user_metadata": {"role": "customer"},
+            "user_metadata": {"role": "customer", "owner_id": owner_id},
         }
 
         if external_type == "phone":
@@ -277,7 +294,7 @@ def resolve_or_create_sender(
         }
 
     if _looks_like_uuid(external_sender_id):
-        by_uuid = _find_existing_entity_by_uuid(session, external_sender_id)
+        by_uuid = _find_existing_entity_by_uuid(session, owner_uuid, external_sender_id)
         if by_uuid:
             _ensure_external_identity(
                 session,
@@ -407,6 +424,7 @@ def resolve_or_create_sender(
     supabase_user_id = _create_supabase_auth_user(
         normalized_external_id=normalized_external_id,
         external_type=external_type,
+        owner_id=str(owner_uuid),
     )
 
     identity_metadata = {"source": "auto-created-from-intake"}

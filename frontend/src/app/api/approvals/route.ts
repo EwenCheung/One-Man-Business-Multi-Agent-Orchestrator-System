@@ -68,7 +68,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This approval action is blocked until the backend exposes a held reply id." }, { status: 409 });
   }
 
-  const response = await fetch(`${getBackendBaseUrl()}${path}`, {
+  const url = new URL(`${getBackendBaseUrl()}${path}`);
+  url.searchParams.set("owner_id", auth.user.id);
+
+  const response = await fetch(url.toString(), {
     method: "POST",
     headers: getInternalBackendHeaders({
       "Content-Type": "application/json",

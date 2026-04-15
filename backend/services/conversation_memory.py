@@ -190,7 +190,12 @@ def get_short_term_memory(
     return out
 
 
-def get_long_term_owner_memory(session: Session, *, owner_id: str | uuid.UUID) -> str:
+def get_long_term_owner_memory(
+    session: Session,
+    *,
+    owner_id: str | uuid.UUID,
+    sender_role: str | None = None,
+) -> str:
     owner_uuid = _coerce_uuid(owner_id)
     if owner_uuid is None:
         return "No long-term owner memory available."
@@ -198,13 +203,15 @@ def get_long_term_owner_memory(session: Session, *, owner_id: str | uuid.UUID) -
     profile = session.query(Profile).filter(Profile.id == owner_uuid).first()
     profile_memory_context = ((profile.memory_context or "") if profile else "").strip()
 
-    owner_rules = (
-        session.query(OwnerMemoryRule)
-        .filter(OwnerMemoryRule.owner_id == owner_uuid)
-        .order_by(OwnerMemoryRule.updated_at.desc())
-        .limit(40)
-        .all()
+    normalized_role = (sender_role or "").strip().lower()
+    owner_rules_query = session.query(OwnerMemoryRule).filter(
+        OwnerMemoryRule.owner_id == owner_uuid
     )
+    if normalized_role:
+        owner_rules_query = owner_rules_query.filter(
+            func.lower(OwnerMemoryRule.role).in_([normalized_role, "all", "any", "global", "*"])
+        )
+    owner_rules = owner_rules_query.order_by(OwnerMemoryRule.updated_at.desc()).limit(40).all()
 
     durable_owner_memories = (
         session.query(EntityMemory)
@@ -382,9 +389,12 @@ def build_three_layer_memory_context(
     owner_id: str | uuid.UUID,
     conversation_thread_id: str | uuid.UUID,
     sender_external_id: str,
+    sender_role: str | None = None,
 ) -> dict[str, str | list[dict[str, str]]]:
     return {
-        "long_term_memory": get_long_term_owner_memory(session, owner_id=owner_id),
+        "long_term_memory": get_long_term_owner_memory(
+            session, owner_id=owner_id, sender_role=sender_role
+        ),
         "sender_memory": get_sender_memory_summary(
             session,
             owner_id=owner_id,

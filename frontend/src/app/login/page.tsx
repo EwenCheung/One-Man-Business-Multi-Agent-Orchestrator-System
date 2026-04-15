@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { SignInWithPasswordCredentials } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
@@ -23,7 +24,7 @@ export default function LoginPage() {
 
     const supabase = createClient();
     
-    let credentials;
+    let credentials: SignInWithPasswordCredentials;
     const trimmedId = identifier.trim();
     const isPhone = /^\+?[0-9\s\-]+$/.test(trimmedId);
 
@@ -38,15 +39,42 @@ export default function LoginPage() {
       }
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword(credentials);
+    const { error } = await supabase.auth.signInWithPassword(credentials);
 
     if (error) {
       setErrorMessage(error.message);
       return;
     }
 
-    const role = data.user?.user_metadata?.role;
-    if (role && role !== "owner") {
+    const { data: sessionData } = await supabase.auth.getUser();
+    const userId = sessionData.user?.id;
+    if (!userId) {
+      router.push("/dashboard");
+      router.refresh();
+      return;
+    }
+
+    const { data: ownerProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (ownerProfile?.id) {
+      router.push("/dashboard");
+      router.refresh();
+      return;
+    }
+
+    const { data: identity } = await supabase
+      .from("external_identities")
+      .select("entity_role")
+      .contains("identity_metadata", { supabase_user_id: userId })
+      .limit(1)
+      .maybeSingle();
+
+    const role = identity?.entity_role;
+    if (role === "customer" || role === "supplier" || role === "partner" || role === "investor") {
       router.push(`/dashboards/${role}`);
     } else {
       router.push("/dashboard");

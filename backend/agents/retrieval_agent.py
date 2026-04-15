@@ -35,11 +35,16 @@ from backend.utils.llm_provider import get_chat_llm
 # The sender_id is injected at call time.
 
 
-def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bool = False):
+def _build_tools_for_request(
+    role: str,
+    sender_id: str,
+    owner_id: str,
+    allow_internal_tools: bool = False,
+):
     """Build LangChain tool wrappers for the allowed functions, scoped to sender_id."""
     role = (role or "").lower()
     allow_internal_tools = allow_internal_tools or (role == "owner")
-    
+
     allowed_fns = get_tools_for_role(role)
     allowed_names = {fn.__name__ for fn in allowed_fns}
     if allow_internal_tools:
@@ -55,8 +60,8 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             session = SessionLocal()
             try:
                 if role == "owner" and "get_full_product_table" in allowed_names:
-                    return json.dumps(rt.get_full_product_table(session), default=str)
-                return json.dumps(rt.get_product_catalog(session), default=str)
+                    return json.dumps(rt.get_full_product_table(session, owner_id), default=str)
+                return json.dumps(rt.get_product_catalog(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -69,7 +74,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get all orders for the current customer, including product name and order status."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_customer_orders(session, sender_id), default=str)
+                return json.dumps(rt.get_customer_orders(session, sender_id, owner_id), default=str)
             finally:
                 session.close()
 
@@ -82,7 +87,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get the current customer's profile information."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_customer_profile(session, sender_id), default=str)
+                return json.dumps(
+                    rt.get_customer_profile(session, sender_id, owner_id), default=str
+                )
             finally:
                 session.close()
 
@@ -99,7 +106,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             try:
                 return json.dumps(
                     rt.evaluate_discount_request(
-                        session, product_query, quantity, requested_discount_pct
+                        session, owner_id, product_query, quantity, requested_discount_pct
                     ),
                     default=str,
                 )
@@ -116,7 +123,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get the current supplier's profile information."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_supplier_profile(session, sender_id), default=str)
+                return json.dumps(
+                    rt.get_supplier_profile(session, sender_id, owner_id), default=str
+                )
             finally:
                 session.close()
 
@@ -129,7 +138,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get all supply contracts for the current supplier, including product details."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_supplier_contracts(session, sender_id), default=str)
+                return json.dumps(
+                    rt.get_supplier_contracts(session, sender_id, owner_id), default=str
+                )
             finally:
                 session.close()
 
@@ -142,7 +153,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get product stock levels — name, description, and current stock quantity only."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_product_stock(session), default=str)
+                return json.dumps(rt.get_product_stock(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -156,7 +167,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get the full product table including cost price and margins."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_full_product_table(session), default=str)
+                return json.dumps(rt.get_full_product_table(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -169,7 +180,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get all orders across all customers with product and customer info."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_all_orders(session), default=str)
+                return json.dumps(rt.get_all_orders(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -182,7 +193,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get the total number of customers (aggregate only, no PII)."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_customer_count(session), default=str)
+                return json.dumps(rt.get_customer_count(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -195,7 +206,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get full supply contract table for investor analysis."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_supply_overview(session), default=str)
+                return json.dumps(rt.get_supply_overview(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -208,7 +219,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Compute per-product ROI: cost, selling price, margin, total units sold, total revenue, and ROI percentage."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_product_roi(session), default=str)
+                return json.dumps(rt.get_product_roi(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -221,7 +232,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get aggregate sales statistics: total orders, total revenue, average order value, orders by status."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_sales_stats(session), default=str)
+                return json.dumps(rt.get_sales_stats(session, owner_id), default=str)
             finally:
                 session.close()
 
@@ -235,7 +246,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get the current partner's profile information."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_partner_profile(session, sender_id), default=str)
+                return json.dumps(rt.get_partner_profile(session, sender_id, owner_id), default=str)
             finally:
                 session.close()
 
@@ -248,7 +259,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get all agreements for the current partner."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_partner_agreements(session, sender_id), default=str)
+                return json.dumps(
+                    rt.get_partner_agreements(session, sender_id, owner_id), default=str
+                )
             finally:
                 session.close()
 
@@ -261,7 +274,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             """Get all products linked to the current partner, with product details and agreement info."""
             session = SessionLocal()
             try:
-                return json.dumps(rt.get_partner_products(session, sender_id), default=str)
+                return json.dumps(
+                    rt.get_partner_products(session, sender_id, owner_id), default=str
+                )
             finally:
                 session.close()
 
@@ -277,10 +292,11 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             try:
                 if role == "owner" and "semantic_search_full_product_table" in allowed_names:
                     return json.dumps(
-                        rt.semantic_search_full_product_table(session, query, top_k), default=str
+                        rt.semantic_search_full_product_table(session, owner_id, query, top_k),
+                        default=str,
                     )
                 return json.dumps(
-                    rt.semantic_search_product_catalog(session, query, top_k), default=str
+                    rt.semantic_search_product_catalog(session, owner_id, query, top_k), default=str
                 )
             finally:
                 session.close()
@@ -295,7 +311,8 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             session = SessionLocal()
             try:
                 return json.dumps(
-                    rt.semantic_search_full_product_table(session, query, top_k), default=str
+                    rt.semantic_search_full_product_table(session, owner_id, query, top_k),
+                    default=str,
                 )
             finally:
                 session.close()
@@ -310,7 +327,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             session = SessionLocal()
             try:
                 return json.dumps(
-                    rt.semantic_search_supplier_contracts(session, query, sender_id, top_k),
+                    rt.semantic_search_supplier_contracts(
+                        session, query, sender_id, owner_id, top_k
+                    ),
                     default=str,
                 )
             finally:
@@ -326,7 +345,7 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             session = SessionLocal()
             try:
                 return json.dumps(
-                    rt.semantic_search_supply_overview(session, query, top_k), default=str
+                    rt.semantic_search_supply_overview(session, owner_id, query, top_k), default=str
                 )
             finally:
                 session.close()
@@ -341,7 +360,8 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             session = SessionLocal()
             try:
                 return json.dumps(
-                    rt.semantic_search_all_partner_agreements(session, query, top_k), default=str
+                    rt.semantic_search_all_partner_agreements(session, owner_id, query, top_k),
+                    default=str,
                 )
             finally:
                 session.close()
@@ -356,7 +376,9 @@ def _build_tools_for_request(role: str, sender_id: str, allow_internal_tools: bo
             session = SessionLocal()
             try:
                 return json.dumps(
-                    rt.semantic_search_partner_agreements(session, query, sender_id, top_k),
+                    rt.semantic_search_partner_agreements(
+                        session, query, sender_id, owner_id, top_k
+                    ),
                     default=str,
                 )
             finally:
@@ -418,6 +440,7 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
     ctx = task.get("injected_context", {})
     role = ctx.get("sender_role", "")
     sender_id = ctx.get("sender_id", "")
+    owner_id = ctx.get("owner_id", settings.OWNER_ID)
     description = task.get("description", "")
     allow_internal_tools = bool(ctx.get("allow_internal_tools", False))
 
@@ -425,7 +448,7 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
 
     # Validate role
     try:
-        tools = _build_tools_for_request(role, sender_id, allow_internal_tools)
+        tools = _build_tools_for_request(role, sender_id, owner_id, allow_internal_tools)
     except ValueError as e:
         completed_task["status"] = "failed"
         completed_task["result"] = f"Access denied: {e}"
@@ -441,9 +464,7 @@ def retrieval_agent(task: SubTask) -> dict[str, list[dict[str, Any]]]:
     llm_with_tools = llm.bind_tools(tools)
 
     messages = [
-        
         SystemMessage(content=_build_system_prompt(role)),
-
         HumanMessage(content=f"### Task\n{description}"),
     ]
 

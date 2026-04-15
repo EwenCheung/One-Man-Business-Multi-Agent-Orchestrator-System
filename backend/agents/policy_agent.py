@@ -19,6 +19,7 @@ from typing import Literal, Optional
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 
+from backend.config import settings
 from backend.db.engine import SessionLocal
 from backend.graph.state import SubTask
 from backend.models.agent_response import AgentResponse
@@ -148,7 +149,9 @@ When uncertain between 'high' and 'medium', choose 'medium'.
 # ─── Private helpers ──────────────────────────────────────────────────────────
 
 
-def _retrieve(session, description: str, sender_role: str) -> list[dict[str, object]]:
+def _retrieve(
+    session, description: str, sender_role: str, owner_id: str
+) -> list[dict[str, object]]:
     """
     Run the two-stage retrieval pipeline for a policy question.
 
@@ -172,11 +175,12 @@ def _retrieve(session, description: str, sender_role: str) -> list[dict[str, obj
     semantic_candidates = search_policy_chunks(
         session,
         description,
+        owner_id=owner_id,
         category=categories[0] if len(categories) == 1 else None,
         categories=categories or None,
     )
     lexical_candidates = search_policy_chunks_lexical(
-        session, description, categories=categories or None
+        session, description, categories=categories or None, owner_id=owner_id
     )
     candidates = merge_policy_candidates(semantic_candidates, lexical_candidates)
     logger.debug(
@@ -273,6 +277,35 @@ def _format_result(decision: PolicyDecision) -> str:
     return "\n".join(lines)
 
 
+def _normalize_verdict_for_sender_role(
+    decision: PolicyDecision,
+    *,
+    sender_role: str,
+    description: str,
+) -> PolicyDecision:
+    normalized_role = (sender_role or "").strip().lower()
+    description_text = (description or "").lower()
+    support_text = " ".join(decision.supporting_rules).lower()
+
+    if (
+        normalized_role == "customer"
+        and decision.verdict == "requires_approval"
+        and "owner" in support_text
+        and any(keyword in description_text for keyword in ("stack", "combine", "both"))
+    ):
+        return decision.model_copy(
+            update={
+                "verdict": "disallowed",
+                "explanation": (
+                    "The policy allows this only with owner approval, so for a customer request "
+                    "the action is not permitted directly. " + decision.explanation
+                ),
+            }
+        )
+
+    return decision
+
+
 # ─── Public entry point ───────────────────────────────────────────────────────
 
 
@@ -298,6 +331,7 @@ def policy_agent(task: SubTask) -> dict[str, list[dict[str, object]]]:
     description = task.get("description", "")
     ctx = task.get("injected_context", {})
     sender_role = ctx.get("sender_role", "unknown")
+    owner_id = ctx.get("owner_id", settings.OWNER_ID)
 
     logger.info("PolicyAgent: starting task '%s' | role=%s", task.get("task_id"), sender_role)
 
@@ -308,10 +342,15 @@ def policy_agent(task: SubTask) -> dict[str, list[dict[str, object]]]:
         llm = get_chat_llm(scope="policy", temperature=0.0)
 
         # Stage 1 + 2: retrieve and rerank
-        chunks = _retrieve(session, description, sender_role)
+        chunks = _retrieve(session, description, sender_role, owner_id)
 
         # Stage 3: evaluate
         decision = _evaluate(description, chunks, sender_role, llm)
+        decision = _normalize_verdict_for_sender_role(
+            decision,
+            sender_role=sender_role,
+            description=description,
+        )
 
         # Stage 4: format
         result_text = _format_result(decision)

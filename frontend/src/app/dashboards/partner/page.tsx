@@ -1,4 +1,5 @@
 import { getAuthenticatedClient } from "@/lib/api";
+import { resolveAuthenticatedStakeholder } from "@/lib/stakeholder-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 
@@ -14,19 +15,15 @@ type PartnerAgreementRow = {
 export default async function PartnerDashboardPage() {
   const auth = await getAuthenticatedClient();
   if (!auth) redirect("/login");
-  
-  if (auth.user.user_metadata?.role !== "partner") {
-    return <p className="p-8 text-red-600">Unauthorized. You are not a partner.</p>;
-  }
 
   const { user } = auth;
   const admin = createAdminClient();
-  
-  const { data: partnerData } = await admin
-    .from("partners")
-    .select("id, owner_id")
-    .or([user.email ? `email.eq.${user.email}` : null, user.phone ? `phone.eq.${user.phone}` : null].filter(Boolean).join(","))
-    .single();
+
+  const resolved = await resolveAuthenticatedStakeholder(admin, user);
+  if (!resolved || resolved.role !== "partner") {
+    return <p className="p-8 text-red-600">Unauthorized. You are not a partner.</p>;
+  }
+  const partnerData = resolved.stakeholder;
 
   let agreements: PartnerAgreementRow[] = [];
   if (partnerData) {
@@ -57,8 +54,11 @@ export default async function PartnerDashboardPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {agreements.map((a, i) => (
-              <tr key={i} className="hover:bg-zinc-50/50">
+            {agreements.map((a) => (
+              <tr
+                key={`${a.agreement_type ?? "unknown"}-${a.end_date ?? "none"}-${a.revenue_share_pct ?? "na"}`}
+                className="hover:bg-zinc-50/50"
+              >
                 <td className="px-6 py-4 font-medium text-zinc-900">{a.agreement_type}</td>
                 <td className="px-6 py-4">{a.description}</td>
                 <td className="px-6 py-4">{a.revenue_share_pct}%</td>

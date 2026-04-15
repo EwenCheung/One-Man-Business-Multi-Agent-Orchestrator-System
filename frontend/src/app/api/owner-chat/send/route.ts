@@ -1,14 +1,8 @@
 import { getAuthenticatedClient } from "@/lib/api";
 import { getBackendBaseUrl, getInternalBackendHeaders } from "@/lib/backend";
+import { resolveAuthenticatedStakeholder, stakeholderSenderExternalId } from "@/lib/stakeholder-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
-
-const stakeholderTableByRole = {
-  customer: "customers",
-  supplier: "suppliers",
-  partner: "partners",
-  investor: "investors",
-} as const;
 
 export async function POST(request: NextRequest) {
   const auth = await getAuthenticatedClient({ redirectOnFail: false });
@@ -27,47 +21,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "raw_message is required" }, { status: 400 });
   }
 
-  const role = auth.user.user_metadata?.role || "owner";
+  const admin = createAdminClient();
+  const { data: ownerProfile } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("id", auth.user.id)
+    .maybeSingle();
+
   const payload: Record<string, string | undefined> = {
     raw_message: body.raw_message,
     thread_id: body.thread_id,
   };
 
-  if (role === "owner") {
+  if (ownerProfile?.id) {
     payload.owner_id = auth.user.id;
     payload.sender_id = auth.user.id;
     payload.sender_name = body.sender_name ?? auth.user.email ?? "Owner";
   } else {
-    const admin = createAdminClient();
-    const table = stakeholderTableByRole[role as keyof typeof stakeholderTableByRole];
+    const resolved = await resolveAuthenticatedStakeholder(admin, auth.user);
 
-    if (!table) {
-      return NextResponse.json({ error: "Unsupported chat role" }, { status: 403 });
-    }
-
-    const telegramUsername = auth.user.email?.endsWith("@telegram.local")
-      ? auth.user.email.slice(0, -"@telegram.local".length)
-      : null;
-    const filters = [
-      auth.user.email && !telegramUsername ? `email.eq.${auth.user.email}` : null,
-      auth.user.phone ? `phone.eq.${auth.user.phone}` : null,
-      telegramUsername ? `telegram_username.ilike.${telegramUsername}` : null,
-    ].filter(Boolean);
-
-    const { data: stakeholder, error } = await admin
-      .from(table)
-      .select("id, owner_id, name, email, phone, telegram_username")
-      .or(filters.join(","))
-      .limit(1)
-      .single();
-
-    if (error || !stakeholder) {
+    if (!resolved) {
       return NextResponse.json({ error: "Stakeholder record not found" }, { status: 404 });
     }
+    const { stakeholder, role } = resolved;
 
     payload.owner_id = stakeholder.owner_id;
-    payload.sender_id =
-      stakeholder.email || stakeholder.phone || stakeholder.telegram_username || auth.user.email || auth.user.id;
+    payload.sender_id = stakeholderSenderExternalId(stakeholder, auth.user);
     payload.sender_name = body.sender_name ?? stakeholder.name ?? auth.user.email ?? role;
   }
 

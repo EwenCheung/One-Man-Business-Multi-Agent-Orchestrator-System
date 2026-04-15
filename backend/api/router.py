@@ -78,14 +78,16 @@ def _first_non_empty(*values: object) -> str:
 @api_router.post("/memory/approve/{proposal_id}")
 def approve_memory_endpoint(proposal_id: str, request: Request):
     _require_internal_request(request)
-    approve_memory(proposal_id)
+    owner_id = _validated_owner_id(request.query_params.get("owner_id"))
+    approve_memory(proposal_id, owner_id)
     return {"ok": True}
 
 
 @api_router.post("/memory/reject/{proposal_id}")
 def reject_memory_endpoint(proposal_id: str, request: Request):
     _require_internal_request(request)
-    reject_memory(proposal_id)
+    owner_id = _validated_owner_id(request.query_params.get("owner_id"))
+    reject_memory(proposal_id, owner_id)
     return {"ok": True}
 
 
@@ -95,14 +97,16 @@ def reject_memory_endpoint(proposal_id: str, request: Request):
 @api_router.post("/replies/approve/{held_reply_id}")
 def approve_reply_endpoint(held_reply_id: str, request: Request):
     _require_internal_request(request)
-    result = approve_reply(held_reply_id)
+    owner_id = _validated_owner_id(request.query_params.get("owner_id"))
+    result = approve_reply(held_reply_id, owner_id)
     return result
 
 
 @api_router.post("/replies/reject/{held_reply_id}")
 def reject_reply_endpoint(held_reply_id: str, request: Request, reason: str = ""):
     _require_internal_request(request)
-    result = reject_reply(held_reply_id, reason)
+    owner_id = _validated_owner_id(request.query_params.get("owner_id"))
+    result = reject_reply(held_reply_id, owner_id, reason)
     return result
 
 
@@ -114,7 +118,8 @@ def review_reply_record_endpoint(
     reviewer_reason: str = "",
 ):
     _require_internal_request(request)
-    return review_reply_record(review_record_id, review_label, reviewer_reason)
+    owner_id = _validated_owner_id(request.query_params.get("owner_id"))
+    return review_reply_record(review_record_id, owner_id, review_label, reviewer_reason)
 
 
 # ─── Pipeline ─────────────────────────────────────────────────────
@@ -338,8 +343,10 @@ async def get_reply_review_records(request: Request, limit: int = 50):
 
     session = SessionLocal()
     try:
+        owner_id = _validated_owner_id(request.query_params.get("owner_id"))
         rows = (
             session.query(ReplyReviewRecord)
+            .filter(ReplyReviewRecord.owner_id == owner_id)
             .order_by(ReplyReviewRecord.created_at.desc())
             .limit(limit)
             .all()
@@ -486,8 +493,10 @@ async def get_pending_approvals(request: Request):
 
     session = SessionLocal()
     try:
+        owner_id = _validated_owner_id(request.query_params.get("owner_id"))
         approvals = (
             session.query(PendingApproval)
+            .filter(PendingApproval.owner_id == owner_id)
             .filter(PendingApproval.status == "pending")
             .order_by(PendingApproval.created_at.desc())
             .all()
@@ -524,9 +533,11 @@ async def get_dashboard_summary(request: Request):
 
     session = SessionLocal()
     try:
+        owner_id = _validated_owner_id(request.query_params.get("owner_id"))
         # 1. Count pending approvals
         pending_count = (
             session.query(func.count(PendingApproval.id))
+            .filter(PendingApproval.owner_id == owner_id)
             .filter(PendingApproval.status == "pending")
             .scalar()
         )
@@ -535,6 +546,7 @@ async def get_dashboard_summary(request: Request):
         today = date.today()
         messages_today = (
             session.query(func.count(Message.id))
+            .filter(Message.owner_id == owner_id)
             .filter(func.date(Message.created_at) == today)
             .scalar()
         )
@@ -542,6 +554,7 @@ async def get_dashboard_summary(request: Request):
         # 3. Count total memory updates approved
         memory_updates = (
             session.query(func.count(MemoryUpdateProposal.id))
+            .filter(MemoryUpdateProposal.owner_id == owner_id)
             .filter(MemoryUpdateProposal.status == "approved")
             .scalar()
         )

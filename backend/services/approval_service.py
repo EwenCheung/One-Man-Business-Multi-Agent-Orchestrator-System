@@ -6,14 +6,27 @@ for replies flagged by the Risk Node and memory updates.
 """
 
 import json
+import uuid
+from typing import Any, cast
 from sqlalchemy import text
 from backend.db.engine import SessionLocal
+
+
+def _format_approved_memory_section(proposed_content: list[dict[str, Any]]) -> str:
+    lines = ["## Approved Memory Updates", ""]
+    for record in proposed_content:
+        memory_type = str(record.get("memory_type") or "memory").strip()
+        summary = str(record.get("summary") or record.get("content") or "").strip()
+        if not summary:
+            continue
+        lines.append(f"- ({memory_type}) {summary}")
+    return "\n".join(lines).strip()
 
 
 # ─── Memory Approval ───────────────────────────────────────────────
 
 
-def approve_memory(proposal_id: str):
+def approve_memory(proposal_id: str, owner_id: str):
     """Approve a memory update proposal — inserts records into memory_entries."""
     session = SessionLocal()
     try:
@@ -22,9 +35,9 @@ def approve_memory(proposal_id: str):
                 text("""
                 SELECT *
                 FROM public.memory_update_proposals
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
             """),
-                {"id": proposal_id},
+                {"id": proposal_id, "owner_id": owner_id},
             )
             .mappings()
             .first()
@@ -37,7 +50,6 @@ def approve_memory(proposal_id: str):
         if isinstance(proposed_content, str):
             proposed_content = json.loads(proposed_content)
 
-        import uuid
         from backend.db.models import MemoryEntry
 
         entries = []
@@ -59,23 +71,41 @@ def approve_memory(proposal_id: str):
         if entries:
             session.add_all(entries)
 
+        from backend.db.models import Profile
+
+        try:
+            owner_uuid = uuid.UUID(str(proposal["owner_id"]))
+        except (ValueError, TypeError):
+            owner_uuid = cast(Any, proposal["owner_id"])
+
+        profile = session.query(Profile).filter(Profile.id == owner_uuid).first()
+        if profile and proposed_content:
+            approved_section = _format_approved_memory_section(proposed_content)
+            if approved_section:
+                existing_memory = (profile.memory_context or "").strip()
+                profile.memory_context = (
+                    f"{existing_memory}\n\n{approved_section}".strip()
+                    if existing_memory
+                    else approved_section
+                )
+
         session.execute(
             text("""
                 UPDATE public.memory_update_proposals
                 SET status = 'approved',
                     reviewed_at = now()
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
             """),
-            {"id": proposal_id},
+            {"id": proposal_id, "owner_id": owner_id},
         )
 
         session.execute(
             text("""
                 UPDATE public.pending_approvals
                 SET status = 'approved'
-                WHERE proposal_id = :id
+                WHERE proposal_id = :id AND owner_id = :owner_id
             """),
-            {"id": proposal_id},
+            {"id": proposal_id, "owner_id": owner_id},
         )
 
         session.commit()
@@ -87,7 +117,7 @@ def approve_memory(proposal_id: str):
         session.close()
 
 
-def reject_memory(proposal_id: str):
+def reject_memory(proposal_id: str, owner_id: str):
     """Reject a memory update proposal."""
     session = SessionLocal()
     try:
@@ -96,9 +126,9 @@ def reject_memory(proposal_id: str):
                 text("""
                 SELECT id
                 FROM public.memory_update_proposals
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
             """),
-                {"id": proposal_id},
+                {"id": proposal_id, "owner_id": owner_id},
             )
             .mappings()
             .first()
@@ -112,18 +142,18 @@ def reject_memory(proposal_id: str):
                 UPDATE public.memory_update_proposals
                 SET status = 'rejected',
                     reviewed_at = now()
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
             """),
-            {"id": proposal_id},
+            {"id": proposal_id, "owner_id": owner_id},
         )
 
         session.execute(
             text("""
                 UPDATE public.pending_approvals
                 SET status = 'rejected'
-                WHERE proposal_id = :id
+                WHERE proposal_id = :id AND owner_id = :owner_id
             """),
-            {"id": proposal_id},
+            {"id": proposal_id, "owner_id": owner_id},
         )
 
         session.commit()
@@ -262,7 +292,7 @@ def hold_reply(
         session.close()
 
 
-def approve_reply(held_reply_id: str) -> dict[str, str]:
+def approve_reply(held_reply_id: str, owner_id: str) -> dict[str, str]:
     """Approve a held reply — marks as approved and returns the reply text."""
     session = SessionLocal()
     try:
@@ -271,10 +301,10 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
                 text("""
                 UPDATE public.held_replies
                 SET status = 'approved', reviewed_at = now()
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
                 RETURNING reply_text, owner_id, sender_id, sender_name, sender_role, thread_id
             """),
-                {"id": held_reply_id},
+                {"id": held_reply_id, "owner_id": owner_id},
             )
             .mappings()
             .first()
@@ -332,18 +362,18 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
                 SET final_decision = 'approved_and_sent',
                     message_id = :message_id,
                     reviewed_at = now()
-                WHERE held_reply_id = :held_reply_id
+                WHERE held_reply_id = :held_reply_id AND owner_id = :owner_id
             """),
-            {"held_reply_id": held_reply_id, "message_id": message_id},
+            {"held_reply_id": held_reply_id, "message_id": message_id, "owner_id": owner_id},
         )
 
         session.execute(
             text("""
                 UPDATE public.pending_approvals
                 SET status = 'approved'
-                WHERE held_reply_id = :held_reply_id
+                WHERE held_reply_id = :held_reply_id AND owner_id = :owner_id
             """),
-            {"held_reply_id": held_reply_id},
+            {"held_reply_id": held_reply_id, "owner_id": owner_id},
         )
 
         review_record = (
@@ -351,11 +381,11 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
                 text("""
                 SELECT raw_message, trace_id
                 FROM public.reply_review_records
-                WHERE held_reply_id = :held_reply_id
+                WHERE held_reply_id = :held_reply_id AND owner_id = :owner_id
                 ORDER BY created_at DESC
                 LIMIT 1
             """),
-                {"held_reply_id": held_reply_id},
+                {"held_reply_id": held_reply_id, "owner_id": owner_id},
             )
             .mappings()
             .first()
@@ -404,7 +434,7 @@ def approve_reply(held_reply_id: str) -> dict[str, str]:
         session.close()
 
 
-def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
+def reject_reply(held_reply_id: str, owner_id: str, reason: str = "") -> dict[str, str]:
     """Reject a held reply — marks as rejected."""
     session = SessionLocal()
     try:
@@ -415,10 +445,10 @@ def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
                 SET status = 'rejected',
                     reviewer_notes = :reason,
                     reviewed_at = now()
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
                 RETURNING id
             """),
-                {"id": held_reply_id, "reason": reason},
+                {"id": held_reply_id, "owner_id": owner_id, "reason": reason},
             )
             .mappings()
             .first()
@@ -433,18 +463,18 @@ def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
                 SET final_decision = 'rejected',
                     reviewer_reason = :reason,
                     reviewed_at = now()
-                WHERE held_reply_id = :held_reply_id
+                WHERE held_reply_id = :held_reply_id AND owner_id = :owner_id
             """),
-            {"held_reply_id": held_reply_id, "reason": reason},
+            {"held_reply_id": held_reply_id, "reason": reason, "owner_id": owner_id},
         )
 
         session.execute(
             text("""
                 UPDATE public.pending_approvals
                 SET status = 'rejected'
-                WHERE held_reply_id = :held_reply_id
+                WHERE held_reply_id = :held_reply_id AND owner_id = :owner_id
             """),
-            {"held_reply_id": held_reply_id},
+            {"held_reply_id": held_reply_id, "owner_id": owner_id},
         )
 
         session.commit()
@@ -458,7 +488,7 @@ def reject_reply(held_reply_id: str, reason: str = "") -> dict[str, str]:
 
 
 def review_reply_record(
-    review_record_id: str, review_label: str, reviewer_reason: str = ""
+    review_record_id: str, owner_id: str, review_label: str, reviewer_reason: str = ""
 ) -> dict[str, str]:
     session = SessionLocal()
     try:
@@ -472,11 +502,12 @@ def review_reply_record(
                         ELSE :reviewer_reason
                     END,
                     reviewed_at = now()
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
                 RETURNING id
             """),
                 {
                     "id": review_record_id,
+                    "owner_id": owner_id,
                     "review_label": review_label,
                     "reviewer_reason": reviewer_reason,
                 },

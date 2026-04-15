@@ -29,20 +29,29 @@ from backend.db.models import (
     PartnerProductRelation,
 )
 
+
+def _owner_uuid(owner_id: str) -> uuid.UUID:
+    return uuid.UUID(str(owner_id))
+
+
 # ─── CUSTOMER TOOLS ──────────────────────────────────────────────
 
 
-def get_product_catalog(session: Session) -> list[dict[str, Any]]:
+def get_product_catalog(session: Session, owner_id: str) -> list[dict[str, Any]]:
     """Get the product catalog with name, description, selling price, stock, link, and category."""
-    rows = session.query(
-        Product.id,
-        Product.name,
-        Product.description,
-        Product.selling_price,  # Exclude cost price
-        Product.stock_number,
-        Product.product_link,
-        Product.category,
-    ).all()
+    rows = (
+        session.query(
+            Product.id,
+            Product.name,
+            Product.description,
+            Product.selling_price,  # Exclude cost price
+            Product.stock_number,
+            Product.product_link,
+            Product.category,
+        )
+        .filter(Product.owner_id == _owner_uuid(owner_id))
+        .all()
+    )
     return [
         {
             "id": str(r.id),
@@ -57,7 +66,7 @@ def get_product_catalog(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def get_customer_orders(session: Session, customer_id: str) -> list[dict[str, Any]]:
+def get_customer_orders(session: Session, customer_id: str, owner_id: str) -> list[dict[str, Any]]:
     """Get all orders for a specific customer, including product name and order status."""
     rows = (
         session.query(
@@ -70,7 +79,11 @@ def get_customer_orders(session: Session, customer_id: str) -> list[dict[str, An
             Product.name.label("product_name"),
         )
         .join(Product, Order.product_id == Product.id)
-        .filter(Order.customer_id == uuid.UUID(customer_id))
+        .filter(
+            Order.owner_id == _owner_uuid(owner_id),
+            Order.customer_id == uuid.UUID(customer_id),
+            Product.owner_id == _owner_uuid(owner_id),
+        )
         .all()
     )
     return [
@@ -87,7 +100,9 @@ def get_customer_orders(session: Session, customer_id: str) -> list[dict[str, An
     ]
 
 
-def get_customer_profile(session: Session, customer_id: str) -> dict[str, Any] | None:
+def get_customer_profile(
+    session: Session, customer_id: str, owner_id: str
+) -> dict[str, Any] | None:
     """Get a customer's own profile information."""
     c = (
         session.query(
@@ -99,7 +114,7 @@ def get_customer_profile(session: Session, customer_id: str) -> dict[str, Any] |
             Customer.status,
             Customer.preference,
         )
-        .filter(Customer.id == uuid.UUID(customer_id))
+        .filter(Customer.owner_id == _owner_uuid(owner_id), Customer.id == uuid.UUID(customer_id))
         .first()
     )
     if not c:
@@ -118,7 +133,9 @@ def get_customer_profile(session: Session, customer_id: str) -> dict[str, Any] |
 # ─── SUPPLIER TOOLS ──────────────────────────────────────────────
 
 
-def get_supplier_profile(session: Session, supplier_id: str) -> dict[str, Any] | None:
+def get_supplier_profile(
+    session: Session, supplier_id: str, owner_id: str
+) -> dict[str, Any] | None:
     """Get a supplier's own profile information."""
     s = (
         session.query(
@@ -129,7 +146,7 @@ def get_supplier_profile(session: Session, supplier_id: str) -> dict[str, Any] |
             Supplier.category,
             Supplier.contract_notes,
         )
-        .filter(Supplier.id == uuid.UUID(supplier_id))
+        .filter(Supplier.owner_id == _owner_uuid(owner_id), Supplier.id == uuid.UUID(supplier_id))
         .first()
     )
     if not s:
@@ -144,7 +161,9 @@ def get_supplier_profile(session: Session, supplier_id: str) -> dict[str, Any] |
     }
 
 
-def get_supplier_contracts(session: Session, supplier_id: str) -> list[dict[str, Any]]:
+def get_supplier_contracts(
+    session: Session, supplier_id: str, owner_id: str
+) -> list[dict[str, Any]]:
     """Get all supply contracts for a specific supplier, including product details."""
     rows = (
         session.query(
@@ -161,7 +180,11 @@ def get_supplier_contracts(session: Session, supplier_id: str) -> list[dict[str,
             Product.stock_number,
         )
         .join(Product, SupplierProduct.product_id == Product.id)
-        .filter(SupplierProduct.supplier_id == uuid.UUID(supplier_id))
+        .filter(
+            SupplierProduct.owner_id == _owner_uuid(owner_id),
+            Product.owner_id == _owner_uuid(owner_id),
+            SupplierProduct.supplier_id == uuid.UUID(supplier_id),
+        )
         .all()
     )
     return [
@@ -182,14 +205,18 @@ def get_supplier_contracts(session: Session, supplier_id: str) -> list[dict[str,
     ]
 
 
-def get_product_stock(session: Session) -> list[dict[str, Any]]:
+def get_product_stock(session: Session, owner_id: str) -> list[dict[str, Any]]:
     """Get product stock levels — name, description, and current stock quantity only."""
-    rows = session.query(
-        Product.id,
-        Product.name,
-        Product.description,
-        Product.stock_number,
-    ).all()
+    rows = (
+        session.query(
+            Product.id,
+            Product.name,
+            Product.description,
+            Product.stock_number,
+        )
+        .filter(Product.owner_id == _owner_uuid(owner_id))
+        .all()
+    )
     return [
         {
             "id": str(r.id),
@@ -203,6 +230,7 @@ def get_product_stock(session: Session) -> list[dict[str, Any]]:
 
 def evaluate_discount_request(
     session: Session,
+    owner_id: str,
     product_query: str,
     quantity: int,
     requested_discount_pct: float | None = None,
@@ -212,21 +240,28 @@ def evaluate_discount_request(
     product = (
         session.query(Product)
         .filter(
-            (Product.name.ilike(normalized_query)) | (Product.description.ilike(normalized_query))
+            Product.owner_id == _owner_uuid(owner_id),
+            (Product.name.ilike(normalized_query)) | (Product.description.ilike(normalized_query)),
         )
         .order_by(Product.name.asc())
         .first()
     )
 
     if not product:
-        semantic_matches = semantic_search_full_product_table(session, product_query, top_k=1)
+        semantic_matches = semantic_search_full_product_table(
+            session, owner_id, product_query, top_k=1
+        )
         if not semantic_matches:
             return {
                 "status": "not_found",
                 "reason": "No matching product found for discount evaluation.",
             }
         matched_id = semantic_matches[0]["id"]
-        product = session.query(Product).filter(Product.id == matched_id).first()
+        product = (
+            session.query(Product)
+            .filter(Product.owner_id == _owner_uuid(owner_id), Product.id == matched_id)
+            .first()
+        )
 
     if not product:
         return {
@@ -296,9 +331,9 @@ def evaluate_discount_request(
 # ─── INVESTOR TOOLS ──────────────────────────────────────────────
 
 
-def get_full_product_table(session: Session) -> list[dict[str, Any]]:
+def get_full_product_table(session: Session, owner_id: str) -> list[dict[str, Any]]:
     """Get the full product table including cost price and margins."""
-    rows = session.query(Product).all()
+    rows = session.query(Product).filter(Product.owner_id == _owner_uuid(owner_id)).all()
     return [
         {
             "id": str(r.id),
@@ -315,7 +350,7 @@ def get_full_product_table(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def get_all_orders(session: Session) -> list[dict[str, Any]]:
+def get_all_orders(session: Session, owner_id: str) -> list[dict[str, Any]]:
     """Get all orders across all customers with product and customer info."""
     rows = (
         session.query(
@@ -330,6 +365,11 @@ def get_all_orders(session: Session) -> list[dict[str, Any]]:
         )
         .join(Product, Order.product_id == Product.id)
         .join(Customer, Order.customer_id == Customer.id)
+        .filter(
+            Order.owner_id == _owner_uuid(owner_id),
+            Product.owner_id == _owner_uuid(owner_id),
+            Customer.owner_id == _owner_uuid(owner_id),
+        )
         .all()
     )
     return [
@@ -347,13 +387,17 @@ def get_all_orders(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def get_customer_count(session: Session) -> dict[str, Any]:
+def get_customer_count(session: Session, owner_id: str) -> dict[str, Any]:
     """Get the total number of customers (aggregate only)."""
-    count = session.query(func.count(Customer.id)).scalar()
+    count = (
+        session.query(func.count(Customer.id))
+        .filter(Customer.owner_id == _owner_uuid(owner_id))
+        .scalar()
+    )
     return {"total_customers": count}
 
 
-def get_supply_overview(session: Session) -> list[dict[str, Any]]:
+def get_supply_overview(session: Session, owner_id: str) -> list[dict[str, Any]]:
     """Get full supply contract table for investor analysis."""
     rows = (
         session.query(
@@ -370,6 +414,11 @@ def get_supply_overview(session: Session) -> list[dict[str, Any]]:
         )
         .join(Supplier, SupplierProduct.supplier_id == Supplier.id)
         .join(Product, SupplierProduct.product_id == Product.id)
+        .filter(
+            SupplierProduct.owner_id == _owner_uuid(owner_id),
+            Supplier.owner_id == _owner_uuid(owner_id),
+            Product.owner_id == _owner_uuid(owner_id),
+        )
         .all()
     )
     return [
@@ -389,7 +438,7 @@ def get_supply_overview(session: Session) -> list[dict[str, Any]]:
     ]
 
 
-def get_product_roi(session: Session) -> list[dict[str, Any]]:
+def get_product_roi(session: Session, owner_id: str) -> list[dict[str, Any]]:
     """Compute per-product ROI: cost, selling price, margin, total units sold, total revenue, and ROI percentage."""
     rows = (
         session.query(
@@ -401,7 +450,11 @@ def get_product_roi(session: Session) -> list[dict[str, Any]]:
             func.coalesce(func.sum(Order.quantity), 0).label("total_sold"),
             func.coalesce(func.sum(Order.total_price), 0).label("total_revenue"),
         )
-        .outerjoin(Order, Product.id == Order.product_id)
+        .outerjoin(
+            Order,
+            (Product.id == Order.product_id) & (Order.owner_id == _owner_uuid(owner_id)),
+        )
+        .filter(Product.owner_id == _owner_uuid(owner_id))
         .group_by(Product.id)
         .all()
     )
@@ -427,13 +480,28 @@ def get_product_roi(session: Session) -> list[dict[str, Any]]:
     return results
 
 
-def get_sales_stats(session: Session) -> dict[str, Any]:
+def get_sales_stats(session: Session, owner_id: str) -> dict[str, Any]:
     """Get aggregate sales statistics: total orders, total revenue, average order value, orders by status."""
-    total_orders = session.query(func.count(Order.id)).scalar()
-    total_revenue = float(session.query(func.coalesce(func.sum(Order.total_price), 0)).scalar())
-    avg_order = float(session.query(func.coalesce(func.avg(Order.total_price), 0)).scalar())
+    total_orders = (
+        session.query(func.count(Order.id)).filter(Order.owner_id == _owner_uuid(owner_id)).scalar()
+    )
+    total_revenue = float(
+        session.query(func.coalesce(func.sum(Order.total_price), 0))
+        .filter(Order.owner_id == _owner_uuid(owner_id))
+        .scalar()
+    )
+    avg_order = float(
+        session.query(func.coalesce(func.avg(Order.total_price), 0))
+        .filter(Order.owner_id == _owner_uuid(owner_id))
+        .scalar()
+    )
 
-    status_rows = session.query(Order.status, func.count(Order.id)).group_by(Order.status).all()
+    status_rows = (
+        session.query(Order.status, func.count(Order.id))
+        .filter(Order.owner_id == _owner_uuid(owner_id))
+        .group_by(Order.status)
+        .all()
+    )
     by_status = {status: count for status, count in status_rows}
 
     return {
@@ -447,7 +515,7 @@ def get_sales_stats(session: Session) -> dict[str, Any]:
 # ─── PARTNER TOOLS ───────────────────────────────────────────────
 
 
-def get_partner_profile(session: Session, partner_id: str) -> dict[str, Any] | None:
+def get_partner_profile(session: Session, partner_id: str, owner_id: str) -> dict[str, Any] | None:
     """Get a partner's own profile information."""
     p = (
         session.query(
@@ -457,7 +525,7 @@ def get_partner_profile(session: Session, partner_id: str) -> dict[str, Any] | N
             Partner.phone,
             Partner.partner_type,
         )
-        .filter(Partner.id == uuid.UUID(partner_id))
+        .filter(Partner.owner_id == _owner_uuid(owner_id), Partner.id == uuid.UUID(partner_id))
         .first()
     )
     if not p:
@@ -471,11 +539,16 @@ def get_partner_profile(session: Session, partner_id: str) -> dict[str, Any] | N
     }
 
 
-def get_partner_agreements(session: Session, partner_id: str) -> list[dict[str, Any]]:
+def get_partner_agreements(
+    session: Session, partner_id: str, owner_id: str
+) -> list[dict[str, Any]]:
     """Get all agreements for a specific partner."""
     rows = (
         session.query(PartnerAgreement)
-        .filter(PartnerAgreement.partner_id == uuid.UUID(partner_id))
+        .filter(
+            PartnerAgreement.owner_id == _owner_uuid(owner_id),
+            PartnerAgreement.partner_id == uuid.UUID(partner_id),
+        )
         .all()
     )
     return [
@@ -493,7 +566,7 @@ def get_partner_agreements(session: Session, partner_id: str) -> list[dict[str, 
     ]
 
 
-def get_partner_products(session: Session, partner_id: str) -> list[dict[str, Any]]:
+def get_partner_products(session: Session, partner_id: str, owner_id: str) -> list[dict[str, Any]]:
     """Get all products linked to a specific partner, with product details."""
     rows = (
         session.query(
@@ -503,7 +576,11 @@ def get_partner_products(session: Session, partner_id: str) -> list[dict[str, An
             Product.selling_price,
         )
         .join(Product, PartnerProductRelation.product_id == Product.id)
-        .filter(PartnerProductRelation.partner_id == uuid.UUID(partner_id))
+        .filter(
+            PartnerProductRelation.owner_id == _owner_uuid(owner_id),
+            Product.owner_id == _owner_uuid(owner_id),
+            PartnerProductRelation.partner_id == uuid.UUID(partner_id),
+        )
         .all()
     )
     return [
@@ -531,6 +608,7 @@ def _embed_query(query: str) -> list[float]:
 
 def semantic_search_product_catalog(
     session: Session,
+    owner_id: str,
     query: str,
     top_k: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -540,7 +618,9 @@ def semantic_search_product_catalog(
     distance_expr = Product.description_embedding.cosine_distance(query_vector)
     rows = (
         session.query(Product, distance_expr.label("distance"))
-        .filter(Product.description_embedding.isnot(None))
+        .filter(
+            Product.owner_id == _owner_uuid(owner_id), Product.description_embedding.isnot(None)
+        )
         .order_by(distance_expr)
         .limit(k)
         .all()
@@ -562,6 +642,7 @@ def semantic_search_product_catalog(
 
 def semantic_search_full_product_table(
     session: Session,
+    owner_id: str,
     query: str,
     top_k: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -571,7 +652,9 @@ def semantic_search_full_product_table(
     distance_expr = Product.description_embedding.cosine_distance(query_vector)
     rows = (
         session.query(Product, distance_expr.label("distance"))
-        .filter(Product.description_embedding.isnot(None))
+        .filter(
+            Product.owner_id == _owner_uuid(owner_id), Product.description_embedding.isnot(None)
+        )
         .order_by(distance_expr)
         .limit(k)
         .all()
@@ -597,6 +680,7 @@ def semantic_search_supplier_contracts(
     session: Session,
     query: str,
     supplier_id: str,
+    owner_id: str,
     top_k: int | None = None,
 ) -> list[dict[str, Any]]:
     """Find supply contracts semantically similar to the query, scoped to a supplier."""
@@ -607,6 +691,8 @@ def semantic_search_supplier_contracts(
         session.query(SupplierProduct, Product, distance_expr.label("distance"))
         .join(Product, SupplierProduct.product_id == Product.id)
         .filter(
+            SupplierProduct.owner_id == _owner_uuid(owner_id),
+            Product.owner_id == _owner_uuid(owner_id),
             SupplierProduct.supplier_id == uuid.UUID(supplier_id),
             SupplierProduct.notes_embedding.isnot(None),
         )
@@ -635,6 +721,7 @@ def semantic_search_supplier_contracts(
 
 def semantic_search_supply_overview(
     session: Session,
+    owner_id: str,
     query: str,
     top_k: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -646,7 +733,12 @@ def semantic_search_supply_overview(
         session.query(SupplierProduct, Supplier, Product, distance_expr.label("distance"))
         .join(Supplier, SupplierProduct.supplier_id == Supplier.id)
         .join(Product, SupplierProduct.product_id == Product.id)
-        .filter(SupplierProduct.notes_embedding.isnot(None))
+        .filter(
+            SupplierProduct.owner_id == _owner_uuid(owner_id),
+            Supplier.owner_id == _owner_uuid(owner_id),
+            Product.owner_id == _owner_uuid(owner_id),
+            SupplierProduct.notes_embedding.isnot(None),
+        )
         .order_by(distance_expr)
         .limit(k)
         .all()
@@ -671,6 +763,7 @@ def semantic_search_supply_overview(
 
 def semantic_search_all_partner_agreements(
     session: Session,
+    owner_id: str,
     query: str,
     top_k: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -681,7 +774,11 @@ def semantic_search_all_partner_agreements(
     rows = (
         session.query(PartnerAgreement, Partner, distance_expr.label("distance"))
         .join(Partner, PartnerAgreement.partner_id == Partner.id)
-        .filter(PartnerAgreement.description_embedding.isnot(None))
+        .filter(
+            PartnerAgreement.owner_id == _owner_uuid(owner_id),
+            Partner.owner_id == _owner_uuid(owner_id),
+            PartnerAgreement.description_embedding.isnot(None),
+        )
         .order_by(distance_expr)
         .limit(k)
         .all()
@@ -706,6 +803,7 @@ def semantic_search_partner_agreements(
     session: Session,
     query: str,
     partner_id: str,
+    owner_id: str,
     top_k: int | None = None,
 ) -> list[dict[str, Any]]:
     """Find partner agreements semantically similar to the query, scoped to a partner."""
@@ -715,6 +813,7 @@ def semantic_search_partner_agreements(
     rows = (
         session.query(PartnerAgreement, distance_expr.label("distance"))
         .filter(
+            PartnerAgreement.owner_id == _owner_uuid(owner_id),
             PartnerAgreement.partner_id == uuid.UUID(partner_id),
             PartnerAgreement.description_embedding.isnot(None),
         )
