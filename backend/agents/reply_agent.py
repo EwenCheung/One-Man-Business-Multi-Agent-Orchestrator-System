@@ -2,11 +2,11 @@
 Reply Agent
 
 Drafts the final candidate response using completed sub-agent task results
-and role-appropriate tone constraints from SOUL.md and RULE.md.
+and role-appropriate tone constraints from owner profile context.
 
 ## Behaviour
-- Injects SOUL.md (persona/voice), RULE.md (hard constraints), and all
-  completed sub-agent results into a structured LLM prompt.
+- Injects persona/rules context and all completed sub-agent results into a
+  structured LLM prompt.
 - Applies role-specific tone posture (customer, supplier, investor, partner,
   owner) on top of universal voice guidelines.
 - Returns a ``ReplyOutput`` structured object via LangChain's
@@ -43,8 +43,8 @@ class ReplyOutput(BaseModel):
 
     reply_text: str = Field(
         description=(
-            "The final, ready-to-send reply. Must fully embody the SOUL persona "
-            "and respect all RULE constraints. No meta-commentary or placeholders."
+            "The final, ready-to-send reply. Must embody the owner persona context "
+            "and respect all business-rule constraints. No meta-commentary or placeholders."
         )
     )
     confidence_note: str = Field(
@@ -269,7 +269,7 @@ def _get_tone_instructions(sender_role: str) -> str:
 
 def reply_agent(state: PipelineState) -> dict[str, object]:
     """
-    Generate a final, role-aware, SOUL-grounded reply. Reads all completed sub-agent
+    Generate a final, role-aware, SOUL/RULE-grounded reply. Reads all completed sub-agent
     task results from the state and produces a single ready-to-send reply.
 
     Args:
@@ -281,9 +281,9 @@ def reply_agent(state: PipelineState) -> dict[str, object]:
             - ``urgency_level``   (str): Urgency classification.
             - ``raw_message``     (str): Original incoming message text.
             - ``completed_tasks`` (list[SubTask]): Results from all sub-agents.
-            - ``soul_context``    (str): Loaded content of SOUL.md.
-            - ``rules_context``   (str): Loaded content of RULE.md.
-            - ``long_term_memory``(str): Long-term memory summary.
+            - ``soul_context``    (str): SOUL context.
+            - ``rules_context``   (str): RULE context.
+            - ``long_term_memory``(str): LONG TERM MEMORY summary.
             - ``short_term_memory``(list[dict]): Recent conversation history.
 
     Returns:

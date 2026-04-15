@@ -1,7 +1,7 @@
 """
 Predefined, role-scoped query functions for the Retrieval Agent.
 Each function enforces column-level and row-level access control
-matching the Role-Based Access rules defined in RULE.md.
+matching the role-based business rules enforced by the harness.
 
 All functions accept a SQLAlchemy Session and return lists of dicts.
 UUID IDs are returned as strings for JSON serialization.
@@ -472,7 +472,11 @@ def get_partner_profile(session: Session, partner_id: str) -> dict[str, Any] | N
 
 def get_partner_agreements(session: Session, partner_id: str) -> list[dict[str, Any]]:
     """Get all agreements for a specific partner."""
-    rows = session.query(PartnerAgreement).filter(PartnerAgreement.partner_id == uuid.UUID(partner_id)).all()
+    rows = (
+        session.query(PartnerAgreement)
+        .filter(PartnerAgreement.partner_id == uuid.UUID(partner_id))
+        .all()
+    )
     return [
         {
             "agreement_id": str(r.id),

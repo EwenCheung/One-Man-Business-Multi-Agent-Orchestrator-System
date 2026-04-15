@@ -46,10 +46,10 @@ class PipelineState(TypedDict, total=False):
     intent_label: str
     urgency_level: str
     short_term_memory: list[dict[str, Any]]  # Recent chat history
-    long_term_memory: str  # Summary or MEMORY.md abstract
+    long_term_memory: str  # LONG TERM MEMORY summary from profile/memory services
     sender_memory: str
-    soul_context: str  # Loaded from SOUL.md
-    rules_context: str  # Loaded from RULE.md
+    soul_context: str  # SOUL context
+    rules_context: str  # RULE context
     guardrails_passed: bool
 
     # ── Orchestrator Harness Control ──────────────────────────
