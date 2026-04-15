@@ -1,9 +1,11 @@
 import { getAuthenticatedClient, getOwnerProfile, upsertOwnerProfile } from "@/lib/api";
+import { getBackendBaseUrl } from "@/lib/backend";
 import type { OwnerProfileInput } from "@/lib/types";
 import { NextResponse } from "next/server";
 
 function getTelegramWebhookUrl() {
-  return `${process.env.BACKEND_PUBLIC_URL ?? "http://localhost:8000"}/api/v1/telegram/webhook`;
+  const baseUrl = (process.env.BACKEND_PUBLIC_URL ?? getBackendBaseUrl()).trim().replace(/\/+$/, "");
+  return `${baseUrl}/api/v1/telegram/webhook`;
 }
 
 async function validateTelegramWebhookTarget(secret: string) {
@@ -76,21 +78,26 @@ export async function PATCH(request: Request) {
     }
 
     const payload = (await request.json()) as OwnerProfileInput;
-    const currentProfile = await getOwnerProfile();
-    const nextToken = payload.telegram_bot_token ?? currentProfile?.telegram_bot_token ?? null;
-    const nextSecret = payload.telegram_webhook_secret ?? currentProfile?.telegram_webhook_secret ?? null;
-
-    if (
-      (payload.telegram_bot_token !== undefined || payload.telegram_webhook_secret !== undefined) &&
-      nextToken &&
-      nextSecret
-    ) {
-      await registerTelegramWebhook(nextToken, nextSecret);
-    }
+    const touchedTelegramSettings =
+      payload.telegram_bot_token !== undefined || payload.telegram_webhook_secret !== undefined;
 
     const profile = await upsertOwnerProfile(payload);
+    const nextToken = profile.telegram_bot_token ?? null;
+    const nextSecret = profile.telegram_webhook_secret ?? null;
 
-    return NextResponse.json(profile);
+    if (touchedTelegramSettings && nextToken && nextSecret) {
+      try {
+        await registerTelegramWebhook(nextToken, nextSecret);
+      } catch (error) {
+        console.error("Telegram webhook registration failed after profile save", error);
+        return NextResponse.json({
+          profile,
+          warning: `Profile saved, but Telegram webhook registration failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
+      }
+    }
+
+    return NextResponse.json({ profile, warning: null });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save profile." },

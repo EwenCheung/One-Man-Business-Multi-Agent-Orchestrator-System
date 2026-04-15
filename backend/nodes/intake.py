@@ -2,11 +2,11 @@
 Intake Agent (Node) — PROPOSAL §3, Flow Step 1
 
 Replaces the linear Receiver, Triage, and Context Builder nodes.
-Fetches identity, loads static docs (SOUL.md, RULE.md, MEMORY.md),
+Fetches identity, loads SOUL, RULE, and LONG TERM MEMORY context from the database,
 evaluates early guardrails, and sets the sender role.
 """
 
-import os
+from typing import cast
 
 from backend.config import settings
 from backend.db.engine import SessionLocal
@@ -22,14 +22,12 @@ from backend.services.conversation_memory import (
 )
 
 
-def _load_agent_file(filename: str) -> str:
-    """Helper to load markdown files from the backend/agents directory."""
-    path = os.path.join(os.path.dirname(__file__), "..", "agents", filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return f"(Missing {filename})"
+DEFAULT_SOUL_CONTEXT = "Use a professional, confident, and helpful business tone."
+DEFAULT_RULES_CONTEXT = (
+    "Apply conservative business-safe defaults. Do not reveal sensitive data, "
+    "do not make unsupported commitments, and prefer approval for uncertain cases."
+)
+DEFAULT_LONG_TERM_MEMORY = "No long-term memory available."
 
 
 def intake_node(state: dict[str, object]) -> dict[str, object]:
@@ -44,17 +42,13 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     telegram_chat_id = state.get("telegram_chat_id")
     telegram_contact_phone = state.get("telegram_contact_phone")
 
-    aliases = []
+    aliases: list[str] = []
     if telegram_username:
-        aliases.append(telegram_username)
+        aliases.append(cast(str, telegram_username))
     if telegram_contact_phone:
         aliases.append(str(telegram_contact_phone))
 
     cleaned_message = " ".join(str(raw_msg).split())
-    fallback_soul = _load_agent_file("SOUL.md")
-    fallback_rules = _load_agent_file("RULE.md")
-    fallback_long_term = _load_agent_file("MEMORY.md")
-
     session = SessionLocal()
     short_term: list[dict[str, str]] = []
     sender_memory = ""
@@ -148,7 +142,7 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
         entity_id = ""
         owner_id_to_use = settings.OWNER_ID
         thread_id = state.get("thread_id") or external_sender_id
-        long_term = fallback_long_term
+        long_term = DEFAULT_LONG_TERM_MEMORY
     finally:
         session.close()
 
@@ -165,8 +159,8 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
     finally:
         session.close()
 
-    soul = profile_contexts["soul_context"] or fallback_soul
-    rules = profile_contexts["rule_context"] or fallback_rules
+    soul = profile_contexts["soul_context"] or DEFAULT_SOUL_CONTEXT
+    rules = profile_contexts["rule_context"] or DEFAULT_RULES_CONTEXT
     if profile_contexts["memory_context"]:
         long_term = profile_contexts["memory_context"]
     if profile_contexts.get("business_description"):
@@ -174,7 +168,7 @@ def intake_node(state: dict[str, object]) -> dict[str, object]:
             f"Business Description:\n{profile_contexts['business_description']}\n\n" + long_term
         )
     if not long_term:
-        long_term = fallback_long_term
+        long_term = DEFAULT_LONG_TERM_MEMORY
     if not short_term:
         short_term = [{"role": "user", "content": cleaned_message}]
 

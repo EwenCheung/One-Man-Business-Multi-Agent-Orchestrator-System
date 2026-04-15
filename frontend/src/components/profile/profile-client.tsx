@@ -95,14 +95,18 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   async function handleSave() {
     setErrorMessage(null);
+    setWarningMessage(null);
     setIsSaving(true);
 
     try {
-      const updated = await updateOwnerProfile(form);
+      const result = await updateOwnerProfile(form);
+      const updated = result.profile;
       setProfile(updated);
+      setWarningMessage(result.warning ?? null);
       setForm({
         full_name: updated.full_name ?? "",
         business_name: updated.business_name ?? "",
@@ -125,6 +129,23 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
       setIsLoading(true);
       const refreshed = await fetchOwnerProfile();
       setProfile(refreshed);
+      setForm({
+        full_name: refreshed?.full_name ?? "",
+        business_name: refreshed?.business_name ?? "",
+        business_description: refreshed?.business_description ?? "",
+        business_industry: refreshed?.business_industry ?? "",
+        business_timezone: refreshed?.business_timezone ?? "",
+        preferred_language: refreshed?.preferred_language ?? "",
+        default_reply_tone: refreshed?.default_reply_tone ?? "",
+        sender_summary_threshold: refreshed?.sender_summary_threshold ?? 10,
+        notifications_email: refreshed?.notifications_email ?? "",
+        notifications_enabled: refreshed?.notifications_enabled ?? true,
+        memory_context: refreshed?.memory_context ?? "",
+        soul_context: refreshed?.soul_context ?? "",
+        rule_context: refreshed?.rule_context ?? "",
+        telegram_bot_token: refreshed?.telegram_bot_token ?? "",
+        telegram_webhook_secret: refreshed?.telegram_webhook_secret ?? "",
+      });
       setIsLoading(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save profile.");
@@ -146,6 +167,9 @@ export default function ProfileClient({ initialData }: { initialData: OwnerProfi
 
       {isLoading ? <p className="text-sm text-zinc-500">Refreshing profile...</p> : null}
       {errorMessage ? <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{errorMessage}</p> : null}
+      {warningMessage ? (
+        <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{warningMessage}</p>
+      ) : null}
 
       <SectionCard title="Basic Information" description="Your name and business details.">
         <div className="grid gap-4 md:grid-cols-2">
