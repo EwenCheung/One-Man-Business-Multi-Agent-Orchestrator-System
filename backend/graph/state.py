@@ -66,6 +66,7 @@ class PipelineState(TypedDict, total=False):
     completed_tasks: Annotated[list[SubTask], operator.add]
 
     # ── Reply output ──────────────────────────────────────────
+    generated_reply_text: str
     reply_text: str
     confidence_note: str
     confidence_level: str

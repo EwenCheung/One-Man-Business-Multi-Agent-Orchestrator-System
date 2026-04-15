@@ -165,14 +165,15 @@ def send_telegram_reply(
     owner_id: str,
     sender_external_id: str | None,
     reply_text: str,
+    chat_id: str | None = None,
 ) -> bool:
-    if not sender_external_id:
+    if not sender_external_id and not chat_id:
         logger.warning("No sender_external_id provided for Telegram reply")
         return False
 
-    chat_id = extract_telegram_chat_id(sender_external_id)
-    if not chat_id:
+    resolved_chat_id = chat_id or extract_telegram_chat_id(sender_external_id or "")
+    if not resolved_chat_id:
         logger.info(f"sender_external_id '{sender_external_id}' is not a Telegram ID (tg:*)")
         return False
 
-    return send_telegram_stream_reply(owner_id, chat_id, reply_text)
+    return send_telegram_stream_reply(owner_id, resolved_chat_id, reply_text)

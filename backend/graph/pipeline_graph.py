@@ -146,6 +146,7 @@ def hold_for_approval_node(state: PipelineState) -> dict[str, str]:
         )
         return {
             "held_reply_id": held_reply_id,
+            "generated_reply_text": reply_text,
             "reply_text": "[HELD FOR APPROVAL]",
         }
     except Exception as e:

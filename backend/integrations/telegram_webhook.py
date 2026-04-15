@@ -4,7 +4,7 @@ Telegram Webhook Integration
 Receives Telegram updates via webhook and dispatches them to the orchestrator pipeline.
 
 Endpoint:
-  POST /webhook  → Receives Telegram updates and triggers pipeline asynchronously
+  POST /webhook  → Receives Telegram updates and triggers pipeline processing
 """
 
 import asyncio
@@ -233,8 +233,7 @@ async def telegram_webhook(request: Request):
     """
     Receive Telegram updates and dispatch to orchestrator pipeline.
 
-    Returns 200 OK immediately to prevent Telegram retries while
-    processing happens in the background.
+    Returns 200 OK after the message has been processed.
     """
     provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     require_secret = settings.APP_ENV.lower() != "development"
@@ -273,20 +272,18 @@ async def telegram_webhook(request: Request):
         return {"ok": True}
 
     if _is_start_command(incoming.raw_message):
-        _ = asyncio.create_task(asyncio.to_thread(_handle_start_message, incoming))
+        _ = await asyncio.to_thread(_handle_start_message, incoming)
         return {"ok": True}
 
     if incoming.telegram_chat_id:
-        _ = asyncio.create_task(
-            asyncio.to_thread(
-                send_telegram_chat_action,
-                incoming.owner_id or settings.OWNER_ID,
-                incoming.telegram_chat_id,
-                "typing",
-            )
+        _ = await asyncio.to_thread(
+            send_telegram_chat_action,
+            incoming.owner_id or settings.OWNER_ID,
+            incoming.telegram_chat_id,
+            "typing",
         )
 
-    _ = asyncio.create_task(_process_telegram_message(incoming))
+    _ = await _process_telegram_message(incoming)
 
     return {"ok": True}
 
@@ -295,7 +292,7 @@ async def _process_telegram_message(incoming: IncomingMessage) -> None:
     """
     Process Telegram message through orchestrator pipeline.
 
-    Runs in background to avoid blocking webhook response.
+    Runs inline so webhook delivery works on serverless deployments.
     """
     try:
         from backend.api.router import process_incoming_message

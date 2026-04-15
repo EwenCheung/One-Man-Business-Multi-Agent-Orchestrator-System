@@ -15,6 +15,7 @@ import asyncio
 import hmac
 import uuid
 import logging
+from contextlib import nullcontext
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -59,6 +60,16 @@ def _validated_owner_id(owner_id: str | None) -> str:
         return str(uuid.UUID(str(candidate)))
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail="Invalid owner_id") from exc
+
+
+def _first_non_empty(*values: object) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
 
 
 # ─── Memory Approval ──────────────────────────────────────────────
@@ -126,6 +137,7 @@ async def process_incoming_message(
     # Execute the LangGraph Pipeline
     from backend.graph.pipeline_graph import pipeline
     from backend.utils.langfuse import get_langfuse_handler
+    from backend.utils.langfuse import flush_langfuse_handler
     from backend.db.engine import SessionLocal
     from backend.db.models import Message
     from backend.services.conversation_memory import increment_sender_memory_counter
@@ -150,6 +162,24 @@ async def process_incoming_message(
     langfuse_handler = get_langfuse_handler(
         initial_state["trace_id"],
     )
+    langfuse_client = None
+    langfuse_trace = nullcontext()
+    if langfuse_handler:
+        try:
+            from langfuse import get_client
+            from langfuse.types import TraceContext
+
+            langfuse_client = get_client()
+            trace_context: TraceContext = {"trace_id": str(initial_state["trace_id"])}
+            langfuse_trace = langfuse_client.start_as_current_observation(
+                as_type="span",
+                name="process_incoming_message",
+                trace_context=trace_context,
+            )
+        except Exception as exc:
+            logger.debug("Langfuse root span unavailable: %s", exc)
+            langfuse_client = None
+            langfuse_trace = nullcontext()
     config = (
         {
             "callbacks": [langfuse_handler],
@@ -168,101 +198,136 @@ async def process_incoming_message(
         else {}
     )
 
-    result = await asyncio.to_thread(pipeline.invoke, initial_state, config=config)
+    try:
+        with langfuse_trace as root_span:
+            result = await asyncio.to_thread(pipeline.invoke, initial_state, config=config)
 
-    requires_approval = result.get("requires_approval", False)
-    reply_text = result.get("reply_text", "No reply generated.")
-    held_reply_id = result.get("held_reply_id", "")
+            requires_approval = result.get("requires_approval", False)
+            reply_text = result.get("reply_text", "No reply generated.")
+            held_reply_id = result.get("held_reply_id", "")
 
-    # When the reply is held for owner approval, do not expose the unapproved draft
-    # to the API caller. The held_reply_id lets the dashboard locate the draft.
-    api_reply_text = (
-        "Your message is being reviewed. We will get back to you shortly."
-        if requires_approval
-        else reply_text
-    )
+            # When the reply is held for owner approval, do not expose the unapproved draft
+            # to the API caller. The held_reply_id lets the dashboard locate the draft.
+            api_reply_text = (
+                "Your message is being reviewed. We will get back to you shortly."
+                if requires_approval
+                else reply_text
+            )
 
-    if not requires_approval and reply_text and reply_text != "No reply generated.":
-        session = SessionLocal()
-        try:
-            message_id = uuid.uuid4()
-            conversation_thread_uuid = None
-            conversation_thread_id = result.get("conversation_thread_id")
-            if conversation_thread_id:
+            if not requires_approval and reply_text and reply_text != "No reply generated.":
+                session = SessionLocal()
                 try:
-                    conversation_thread_uuid = uuid.UUID(str(conversation_thread_id))
-                except (ValueError, TypeError):
+                    message_id = uuid.uuid4()
                     conversation_thread_uuid = None
+                    conversation_thread_id = result.get("conversation_thread_id")
+                    if conversation_thread_id:
+                        try:
+                            conversation_thread_uuid = uuid.UUID(str(conversation_thread_id))
+                        except (ValueError, TypeError):
+                            conversation_thread_uuid = None
 
-            outbound_msg = Message(
-                id=message_id,
-                owner_id=result.get("owner_id", settings.OWNER_ID),
-                conversation_thread_id=conversation_thread_uuid,
-                sender_id=result.get("external_sender_id", incoming.sender_id),
-                sender_name=result.get("sender_name", incoming.sender_name or "Unknown"),
-                sender_role=result.get("sender_role", "Unknown"),
-                direction="outbound",
-                content=reply_text,
-            )
-            session.add(outbound_msg)
+                    resolved_owner_id = _first_non_empty(
+                        result.get("owner_id"),
+                        incoming.owner_id,
+                        trusted_owner_id,
+                        settings.OWNER_ID,
+                    )
+                    resolved_sender_id = _first_non_empty(
+                        result.get("external_sender_id"),
+                        incoming.sender_id,
+                    )
+                    resolved_sender_name = _first_non_empty(
+                        result.get("sender_name"),
+                        incoming.sender_name,
+                        "Unknown",
+                    )
+                    resolved_sender_role = _first_non_empty(
+                        result.get("sender_role"),
+                        "Unknown",
+                    )
 
-            if str(result.get("sender_role", "")).lower() != "owner" and result.get(
-                "conversation_thread_id"
-            ):
-                _ = increment_sender_memory_counter(
-                    session,
-                    owner_id=result.get("owner_id", settings.OWNER_ID),
-                    conversation_thread_id=result.get("conversation_thread_id"),
-                    sender_external_id=result.get("external_sender_id", incoming.sender_id),
-                    sender_name=result.get("sender_name", incoming.sender_name or "Unknown"),
-                    sender_role=result.get("sender_role", "Unknown"),
+                    outbound_msg = Message(
+                        id=message_id,
+                        owner_id=resolved_owner_id,
+                        conversation_thread_id=conversation_thread_uuid,
+                        sender_id=resolved_sender_id,
+                        sender_name=resolved_sender_name,
+                        sender_role=resolved_sender_role,
+                        direction="outbound",
+                        content=reply_text,
+                    )
+                    session.add(outbound_msg)
+
+                    if resolved_sender_role.lower() != "owner" and result.get(
+                        "conversation_thread_id"
+                    ):
+                        _ = increment_sender_memory_counter(
+                            session,
+                            owner_id=resolved_owner_id,
+                            conversation_thread_id=result.get("conversation_thread_id"),
+                            sender_external_id=resolved_sender_id,
+                            sender_name=resolved_sender_name,
+                            sender_role=resolved_sender_role,
+                        )
+
+                    session.commit()
+
+                    from backend.integrations.telegram_sender import send_telegram_reply
+
+                    _ = await asyncio.to_thread(
+                        send_telegram_reply,
+                        resolved_owner_id,
+                        resolved_sender_id,
+                        reply_text,
+                        incoming.telegram_chat_id,
+                    )
+
+                    record_auto_sent_reply(
+                        owner_id=resolved_owner_id,
+                        trace_id=result.get("trace_id", initial_state["trace_id"]),
+                        thread_id=result.get("thread_id", initial_state["thread_id"]),
+                        sender_id=resolved_sender_id,
+                        sender_name=resolved_sender_name,
+                        sender_role=resolved_sender_role,
+                        raw_message=result.get("raw_message", incoming.raw_message),
+                        reply_text=reply_text,
+                        risk_level=result.get("risk_level", "low"),
+                        risk_flags=result.get("risk_flags", []),
+                        approval_rule_flags=result.get("approval_rule_flags", []),
+                        requires_approval=requires_approval,
+                        message_id=str(message_id),
+                    )
+                except Exception as e:
+                    logger.error("Failed to save outbound message to history: %s", e, exc_info=True)
+                finally:
+                    session.close()
+
+            if root_span is not None:
+                root_span.update(
+                    output={
+                        "generated_reply_text": result.get("generated_reply_text", reply_text),
+                        "delivered_reply_text": api_reply_text,
+                        "requires_approval": requires_approval,
+                        "risk_level": result.get("risk_level", "low"),
+                        "trace_id": result.get("trace_id", initial_state["trace_id"]),
+                        "held_reply_id": held_reply_id if requires_approval else None,
+                    }
                 )
 
-            session.commit()
-
-            from backend.integrations.telegram_sender import send_telegram_reply
-
-            _ = asyncio.create_task(
-                asyncio.to_thread(
-                    send_telegram_reply,
-                    result.get("owner_id", settings.OWNER_ID),
-                    result.get("external_sender_id", incoming.sender_id),
-                    reply_text,
-                )
-            )
-
-            record_auto_sent_reply(
-                owner_id=result.get("owner_id", settings.OWNER_ID),
-                trace_id=result.get("trace_id", initial_state["trace_id"]),
-                thread_id=result.get("thread_id", initial_state["thread_id"]),
-                sender_id=result.get("external_sender_id", incoming.sender_id),
-                sender_name=result.get("sender_name", incoming.sender_name or "Unknown"),
-                sender_role=result.get("sender_role", "Unknown"),
-                raw_message=result.get("raw_message", incoming.raw_message),
-                reply_text=reply_text,
+            # Extract final output
+            return PipelineResult(
+                reply_text=api_reply_text,
                 risk_level=result.get("risk_level", "low"),
-                risk_flags=result.get("risk_flags", []),
-                approval_rule_flags=result.get("approval_rule_flags", []),
                 requires_approval=requires_approval,
-                message_id=str(message_id),
+                status="completed",
+                trace={
+                    "trace_id": result.get("trace_id", initial_state["trace_id"]),
+                    "orchestrator_warnings": result.get("orchestrator_warnings", []),
+                    "held_reply_id": held_reply_id if requires_approval else None,
+                },
             )
-        except Exception as e:
-            logger.error("Failed to save outbound message to history: %s", e, exc_info=True)
-        finally:
-            session.close()
-
-    # Extract final output
-    return PipelineResult(
-        reply_text=api_reply_text,
-        risk_level=result.get("risk_level", "low"),
-        requires_approval=requires_approval,
-        status="completed",
-        trace={
-            "trace_id": result.get("trace_id", initial_state["trace_id"]),
-            "orchestrator_warnings": result.get("orchestrator_warnings", []),
-            "held_reply_id": held_reply_id if requires_approval else None,
-        },
-    )
+    finally:
+        flush_langfuse_handler(langfuse_handler)
 
 
 @api_router.get("/replies/review-records")
