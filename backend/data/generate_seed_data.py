@@ -20,77 +20,218 @@ OWNERS_FILE = SEED_DIR / "owners.json"
 REFERENCE_DATE = date(2026, 4, 1)
 ROLE_SUFFIXES = ("A", "B", "C")
 
-PRODUCT_TEMPLATES = [
-    (
-        "Wireless Mouse",
-        "Electronics",
-        "Reliable wireless mouse for daily work",
-        Decimal("29.90"),
-        Decimal("17.50"),
-        36,
-    ),
-    (
-        "USB-C Hub",
-        "Electronics",
-        "Compact USB-C hub for modern laptops",
-        Decimal("39.90"),
-        Decimal("24.00"),
-        28,
-    ),
-    (
-        "Phone Case",
-        "Accessories",
-        "Protective phone case with shock absorption",
-        Decimal("16.50"),
-        Decimal("7.80"),
-        52,
-    ),
-    (
-        "Power Bank",
-        "Electronics",
-        "Portable charger for everyday use",
-        Decimal("42.00"),
-        Decimal("25.25"),
-        24,
-    ),
-    (
-        "Mechanical Keyboard",
-        "Electronics",
-        "Mechanical keyboard with tactile switches",
-        Decimal("79.00"),
-        Decimal("49.50"),
-        18,
-    ),
-    (
-        "Laptop Stand",
-        "Accessories",
-        "Adjustable aluminum stand for desks",
-        Decimal("31.50"),
-        Decimal("18.20"),
-        20,
-    ),
-]
-
-DISPLAY_NAMES = {
-    "customer": {
-        "A": "Campus Bookstore",
-        "B": "Student Club Purchasing",
-        "C": "Lab Equipment Office",
+OWNER_SCENARIOS: dict[str, dict[str, Any]] = {
+    "owner1": {
+        "products": [
+            (
+                "Ergo Wireless Mouse",
+                "Workspace Gear",
+                "Reliable ergonomic mouse for all-day office use",
+                Decimal("32.90"),
+                Decimal("18.40"),
+                42,
+            ),
+            (
+                "7-in-1 USB-C Hub",
+                "Workspace Gear",
+                "USB-C hub bundled for laptop teams and hybrid workers",
+                Decimal("44.00"),
+                Decimal("26.50"),
+                34,
+            ),
+            (
+                "Mechanical Keyboard Bundle",
+                "Workspace Gear",
+                "Keyboard bundle for office setup refresh projects",
+                Decimal("88.00"),
+                Decimal("54.90"),
+                22,
+            ),
+            (
+                "Adjustable Laptop Stand",
+                "Desk Setup",
+                "Aluminum laptop stand for hot-desk and meeting rooms",
+                Decimal("35.50"),
+                Decimal("20.10"),
+                30,
+            ),
+            (
+                "Noise-Reducing Headset",
+                "Workspace Gear",
+                "Headset for customer service and remote collaboration teams",
+                Decimal("64.00"),
+                Decimal("39.20"),
+                26,
+            ),
+            (
+                "Starter Desk Setup Kit",
+                "Bundles",
+                "Mouse, hub, stand, and cable kit for new staff onboarding",
+                Decimal("119.00"),
+                Decimal("73.00"),
+                14,
+            ),
+        ],
+        "display_names": {
+            "customer": {
+                "A": "Crestview Academy Procurement",
+                "B": "Harbor Ops Team",
+                "C": "BrightPath Co-Working",
+            },
+            "supplier": {
+                "A": "Shenzhen Device Works",
+                "B": "PackRight Logistics",
+                "C": "Metro Cable Components",
+            },
+            "partner": {
+                "A": "Office Fitout Alliance",
+                "B": "Team Productivity Marketplace",
+                "C": "Hybrid Work Campaign Studio",
+            },
+            "investor": {
+                "A": "SMB Commerce Angels",
+                "B": "Efficiency Growth Fund",
+                "C": "Regional Retail Ventures",
+            },
+        },
+        "customer_preference": "Prefers concise quotations with stock status, delivery ETA, and bundle options in one reply",
+        "customer_note": "Often places repeat team orders after a quick approval round with finance.",
+        "supplier_category": {
+            "A": "Input Devices",
+            "B": "Packaging & Fulfilment",
+            "C": "Connectivity Components",
+        },
+        "supplier_contract_note": {
+            "A": "Primary source for mice, keyboards, and headset stock.",
+            "B": "Handles packing material and overflow fulfilment.",
+            "C": "Covers accessory and cable replenishment.",
+        },
+        "partner_types": {"A": "fitout-referral", "B": "reseller", "C": "campaign"},
+        "partner_note": "Drives B2B lead flow when stock availability and bundle pricing are updated weekly.",
+        "investor_focus": {
+            "A": "Repeat order growth, bundle margin, and fulfilment reliability",
+            "B": "Procurement efficiency and stock turns",
+            "C": "Channel expansion with office and school accounts",
+        },
+        "investor_note": "Wants clean monthly margin view split by bundles and replenishment risk.",
+        "message_inbound": {
+            "customer": "Can you confirm stock, bundle price, and delivery timing for our next workspace order?",
+            "supplier": "Please confirm your next shipment window for keyboards and mice before we commit the PO.",
+            "partner": "Can you send this week's bundle highlights and stock-safe offers for our campaign push?",
+            "investor": "Share the latest repeat-order trend and whether stock constraints will slow April growth.",
+        },
+        "message_outbound": {
+            "customer": "Yes — I will send stock-safe bundle options, firm ETA, and final terms in one update.",
+            "supplier": "Understood. I will align PO timing to your confirmed lead time and flag any coverage gap.",
+            "partner": "Yes — I will send the current bundle shortlist, stock-safe offers, and simple campaign angles today.",
+            "investor": "Yes — I will share repeat-order trend, margin view, and any stock risk affecting April delivery.",
+        },
     },
-    "supplier": {
-        "A": "TechParts Global",
-        "B": "Alpha Packaging Works",
-        "C": "Rapid Fulfillment Supply",
-    },
-    "partner": {
-        "A": "Affiliate Channel Prime",
-        "B": "Marketplace Growth Partner",
-        "C": "Campus Campaign Partner",
-    },
-    "investor": {
-        "A": "Growth Capital Partner",
-        "B": "Operations Improvement Fund",
-        "C": "Regional Scale Investor",
+    "owner2": {
+        "products": [
+            (
+                "Cold Brew Bottle Crate",
+                "Beverage Service",
+                "Bottle crate set for café cold brew and takeaway prep",
+                Decimal("26.00"),
+                Decimal("14.20"),
+                48,
+            ),
+            (
+                "Compostable Paper Cup Pack",
+                "Packaging",
+                "Wholesale compostable cup pack for café takeaway service",
+                Decimal("18.50"),
+                Decimal("9.60"),
+                76,
+            ),
+            (
+                "Custom Sticker Label Roll",
+                "Packaging",
+                "Branding label rolls for takeaway cups and pastry boxes",
+                Decimal("21.90"),
+                Decimal("11.80"),
+                54,
+            ),
+            (
+                "Barista Syrup Dispenser",
+                "Beverage Service",
+                "Countertop dispenser for high-volume beverage stations",
+                Decimal("33.00"),
+                Decimal("18.00"),
+                25,
+            ),
+            (
+                "Takeaway Carrier Tray",
+                "Packaging",
+                "Durable tray for multi-cup takeaway orders",
+                Decimal("15.20"),
+                Decimal("7.40"),
+                92,
+            ),
+            (
+                "Seasonal Launch Pack",
+                "Bundles",
+                "Cup pack, labels, carriers, and display add-ons for new menu launches",
+                Decimal("84.00"),
+                Decimal("47.50"),
+                18,
+            ),
+        ],
+        "display_names": {
+            "customer": {
+                "A": "Daily Dose Café Group",
+                "B": "Morning Roast Kiosk",
+                "C": "Harbor Bakeshop",
+            },
+            "supplier": {
+                "A": "EcoPack Manufacturing",
+                "B": "BeanLine Equipment Supply",
+                "C": "QuickPrint Labels Co",
+            },
+            "partner": {
+                "A": "Foodie District Guide",
+                "B": "Weekend Market Events",
+                "C": "City Café Campaign Lab",
+            },
+            "investor": {
+                "A": "Hospitality Growth Syndicate",
+                "B": "Consumer Ops Capital",
+                "C": "Urban Food Ventures",
+            },
+        },
+        "customer_preference": "Prefers reorder-ready replies with MOQ, delivery day, and branding options clearly stated",
+        "customer_note": "Frequently reorders when seasonal launches are packaged into one simple offer.",
+        "supplier_category": {
+            "A": "Eco Packaging",
+            "B": "Drinkware Equipment",
+            "C": "Print & Labels",
+        },
+        "supplier_contract_note": {
+            "A": "Core supplier for cups, trays, and compostable packaging.",
+            "B": "Supports brew-tool and countertop accessory restocks.",
+            "C": "Handles custom print turnaround for launch windows.",
+        },
+        "partner_types": {"A": "community-referral", "B": "event", "C": "campaign"},
+        "partner_note": "Performs best when launch packs and seasonal offers are supplied with ready-made messaging.",
+        "investor_focus": {
+            "A": "Wholesale reorder growth, gross margin, and packaging mix",
+            "B": "Cash conversion and stock discipline",
+            "C": "Expansion readiness across café chains and events",
+        },
+        "investor_note": "Wants clearer visibility into repeat wholesale demand and seasonal campaign ROI.",
+        "message_inbound": {
+            "customer": "Can you confirm the reorder price, delivery slot, and branding options for next week's café launch?",
+            "supplier": "Please confirm cup stock and print lead time before we open the next wholesale promo.",
+            "partner": "Can you send the seasonal launch pack details and best-performing talking points for our audience?",
+            "investor": "Share the latest wholesale reorder trend and whether packaging margins are holding this month.",
+        },
+        "message_outbound": {
+            "customer": "Yes — I will send MOQ, delivery day, branding options, and the clean reorder summary in one message.",
+            "supplier": "Got it. I will verify stock, print lead time, and any promo risk before we lock the next run.",
+            "partner": "Yes — I will send the seasonal launch pack, campaign angle, and stock-safe offer list today.",
+            "investor": "Yes — I will share reorder trend, margin health, and any packaging risk affecting this month's plan.",
+        },
     },
 }
 
@@ -101,6 +242,10 @@ def seed_uuid(*parts: str) -> str:
 
 def owner_index(owner: dict[str, str]) -> str:
     return owner["label"].replace("owner", "")
+
+
+def owner_scenario(owner: dict[str, str]) -> dict[str, Any]:
+    return OWNER_SCENARIOS[owner["label"]]
 
 
 def load_owners() -> list[dict[str, str]]:
@@ -124,6 +269,7 @@ def write_csv(filename: str, rows: list[dict[str, Any]], fieldnames: list[str]) 
 
 def _participant(owner: dict[str, str], role: str, suffix: str) -> dict[str, str]:
     idx = owner_index(owner)
+    scenario = owner_scenario(owner)
     phone_prefix = {"customer": "1555", "supplier": "1666", "partner": "1777", "investor": "1888"}[
         role
     ]
@@ -132,7 +278,7 @@ def _participant(owner: dict[str, str], role: str, suffix: str) -> dict[str, str
         "owner_id": owner["id"],
         "idx": idx,
         "suffix": suffix,
-        "name": f"{DISPLAY_NAMES[role][suffix]} {idx}{suffix}",
+        "name": scenario["display_names"][role][suffix],
         "email": f"{role}{idx}{suffix}@gmail.com",
         "phone": f"+{phone_prefix}00{idx}{ord(suffix) - ord('A') + 1:02d}",
     }
@@ -150,17 +296,23 @@ def _email_suffix(email: str) -> str:
     return local[-1].upper()
 
 
+def _owner_label_from_seed_email(email: str) -> str:
+    local = email.split("@")[0]
+    owner_idx = local[-2]
+    return f"owner{owner_idx}"
+
+
 def generate_products(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for owner in owners:
-        idx = owner_index(owner)
-        for name, category, description, sell, cost, stock in PRODUCT_TEMPLATES:
+        scenario = owner_scenario(owner)
+        for name, category, description, sell, cost, stock in scenario["products"]:
             rows.append(
                 {
                     "id": seed_uuid("product", owner["label"], name),
                     "owner_id": owner["id"],
-                    "name": f"{name} {idx}",
-                    "description": f"{description} for {owner['email']}",
+                    "name": name,
+                    "description": description,
                     "selling_price": str(sell),
                     "cost_price": str(cost),
                     "stock_number": stock,
@@ -174,6 +326,7 @@ def generate_products(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
 def generate_customers(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for owner in owners:
+        scenario = owner_scenario(owner)
         for suffix in ROLE_SUFFIXES:
             base = _participant(owner, "customer", suffix)
             rows.append(
@@ -185,8 +338,8 @@ def generate_customers(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
                     "phone": base["phone"],
                     "company": f"{base['name']} Pte Ltd",
                     "status": "active",
-                    "preference": "Prefers concise updates with ETA and terms in one reply",
-                    "notes": f"Lecture demo customer {base['idx']}{suffix}",
+                    "preference": scenario["customer_preference"],
+                    "notes": scenario["customer_note"],
                     "telegram_user_id": "",
                     "telegram_username": f"customer{base['idx']}{suffix}".lower(),
                     "telegram_chat_id": "",
@@ -199,9 +352,9 @@ def generate_customers(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
 
 
 def generate_suppliers(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
-    categories = {"A": "Electronics", "B": "Accessories", "C": "Electronics"}
     rows: list[dict[str, Any]] = []
     for owner in owners:
+        scenario = owner_scenario(owner)
         for suffix in ROLE_SUFFIXES:
             base = _participant(owner, "supplier", suffix)
             rows.append(
@@ -211,8 +364,8 @@ def generate_suppliers(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
                     "name": base["name"],
                     "email": base["email"],
                     "phone": base["phone"],
-                    "category": categories[suffix],
-                    "contract_notes": f"Primary supplier lane {suffix} for owner {base['idx']}",
+                    "category": scenario["supplier_category"][suffix],
+                    "contract_notes": scenario["supplier_contract_note"][suffix],
                     "status": "active",
                 }
             )
@@ -220,9 +373,9 @@ def generate_suppliers(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
 
 
 def generate_partners(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
-    types = {"A": "affiliate", "B": "reseller", "C": "campaign"}
     rows: list[dict[str, Any]] = []
     for owner in owners:
+        scenario = owner_scenario(owner)
         for suffix in ROLE_SUFFIXES:
             base = _participant(owner, "partner", suffix)
             rows.append(
@@ -232,8 +385,8 @@ def generate_partners(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
                     "name": base["name"],
                     "email": base["email"],
                     "phone": base["phone"],
-                    "partner_type": types[suffix],
-                    "notes": f"Demo partner {suffix} for owner {base['idx']}",
+                    "partner_type": scenario["partner_types"][suffix],
+                    "notes": scenario["partner_note"],
                     "status": "active",
                 }
             )
@@ -241,13 +394,9 @@ def generate_partners(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
 
 
 def generate_investors(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
-    focus = {
-        "A": "Monthly growth, conversion, and GMV",
-        "B": "Operational efficiency and supply risk",
-        "C": "Channel expansion and partner ROI",
-    }
     rows: list[dict[str, Any]] = []
     for owner in owners:
+        scenario = owner_scenario(owner)
         for suffix in ROLE_SUFFIXES:
             base = _participant(owner, "investor", suffix)
             rows.append(
@@ -257,8 +406,8 @@ def generate_investors(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
                     "name": base["name"],
                     "email": base["email"],
                     "phone": base["phone"],
-                    "focus": focus[suffix],
-                    "notes": f"Demo investor {suffix} for owner {base['idx']}",
+                    "focus": scenario["investor_focus"][suffix],
+                    "notes": scenario["investor_note"],
                     "status": "active",
                 }
             )
@@ -459,6 +608,7 @@ def generate_conversation_threads(
 def generate_messages(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for thread in threads:
+        scenario = OWNER_SCENARIOS[_owner_label_from_seed_email(thread["sender_external_id"])]
         rows.append(
             {
                 "id": seed_uuid("message", thread["id"], "inbound", "1"),
@@ -468,7 +618,7 @@ def generate_messages(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "sender_name": thread["sender_name"],
                 "sender_role": thread["sender_role"],
                 "direction": "inbound",
-                "content": "Can we confirm timeline and pricing details for this request?",
+                "content": scenario["message_inbound"][thread["sender_role"]],
             }
         )
         rows.append(
@@ -480,7 +630,7 @@ def generate_messages(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "sender_name": thread["sender_name"],
                 "sender_role": thread["sender_role"],
                 "direction": "outbound",
-                "content": "Confirmed. I will share next actions with ETA and terms in one update.",
+                "content": scenario["message_outbound"][thread["sender_role"]],
             }
         )
     return rows
@@ -489,7 +639,12 @@ def generate_messages(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def generate_owner_memory_rules(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for owner in owners:
-        idx = owner_index(owner)
+        if owner["label"] == "owner1":
+            customer_rule = "Do not offer workspace bundle discounts above 12 percent or promise same-week dispatch unless stock is confirmed."
+            supplier_rule = "For component shortages, prioritize supply reliability and onboarding kits over lowest landed cost."
+        else:
+            customer_rule = "Do not approve wholesale café pricing changes above 10 percent or custom packaging exceptions without owner approval."
+            supplier_rule = "Protect delivery consistency for packaging and launch items even if a lower-cost supplier is available."
         rows.extend(
             [
                 {
@@ -497,7 +652,7 @@ def generate_owner_memory_rules(owners: list[dict[str, str]]) -> list[dict[str, 
                     "owner_id": owner["id"],
                     "role": "customer",
                     "category": "pricing",
-                    "content": f"Owner {idx}: never offer >12% discount without explicit approval.",
+                    "content": customer_rule,
                     "created_at": "2026-03-20T09:00:00+00:00",
                     "updated_at": "2026-03-27T09:30:00+00:00",
                 },
@@ -506,7 +661,7 @@ def generate_owner_memory_rules(owners: list[dict[str, str]]) -> list[dict[str, 
                     "owner_id": owner["id"],
                     "role": "supplier",
                     "category": "operations",
-                    "content": f"Owner {idx}: prioritize lead-time reliability over minimum unit price.",
+                    "content": supplier_rule,
                     "created_at": "2026-03-18T08:30:00+00:00",
                     "updated_at": "2026-03-25T10:15:00+00:00",
                 },
@@ -536,63 +691,124 @@ def generate_memory_entries(
         investor_c = next(
             i for i in by_owner_investors[owner_id] if _email_suffix(i["email"]) == "C"
         )
+        owner_label = _owner_label_from_seed_email(customer_a["email"])
 
-        rows.extend(
-            [
-                {
-                    "id": seed_uuid("memory-entry", owner_id, "customer-a", "ops"),
-                    "owner_id": owner_id,
-                    "sender_id": customer_a["email"],
-                    "sender_name": customer_a["name"],
-                    "sender_role": "customer",
-                    "memory_type": "operations",
-                    "content": "Requested dispatch updates before 4PM every Friday for campus receiving team.",
-                    "summary": "Friday 4PM dispatch update preference",
-                    "tags": json.dumps(["operations", "dispatch", "customer-preference"]),
-                    "importance": "0.78",
-                    "created_at": "2026-03-22T09:40:00+00:00",
-                },
-                {
-                    "id": seed_uuid("memory-entry", owner_id, "supplier-a", "risk"),
-                    "owner_id": owner_id,
-                    "sender_id": supplier_a["email"],
-                    "sender_name": supplier_a["name"],
-                    "sender_role": "supplier",
-                    "memory_type": "risk",
-                    "content": "Supplier warned of seasonal chipset volatility; hold 3-week safety stock for keyboard SKUs.",
-                    "summary": "Chipset volatility requires safety stock",
-                    "tags": json.dumps(["supply-risk", "inventory"]),
-                    "importance": "0.84",
-                    "created_at": "2026-03-24T11:15:00+00:00",
-                },
-                {
-                    "id": seed_uuid("memory-entry", owner_id, "partner-b", "growth"),
-                    "owner_id": owner_id,
-                    "sender_id": partner_b["email"],
-                    "sender_name": partner_b["name"],
-                    "sender_role": "partner",
-                    "memory_type": "growth",
-                    "content": "Partner asked for conversion dashboard snapshot every Monday to tune campaign creatives.",
-                    "summary": "Weekly conversion snapshot request",
-                    "tags": json.dumps(["marketing", "cadence"]),
-                    "importance": "0.66",
-                    "created_at": "2026-03-26T07:55:00+00:00",
-                },
-                {
-                    "id": seed_uuid("memory-entry", owner_id, "investor-c", "finance"),
-                    "owner_id": owner_id,
-                    "sender_id": investor_c["email"],
-                    "sender_name": investor_c["name"],
-                    "sender_role": "investor",
-                    "memory_type": "finance",
-                    "content": "Investor requested gross margin trend with supplier lead-time overlay for monthly review.",
-                    "summary": "Margin + lead-time trend needed monthly",
-                    "tags": json.dumps(["finance", "investor-reporting"]),
-                    "importance": "0.81",
-                    "created_at": "2026-03-28T14:20:00+00:00",
-                },
-            ]
-        )
+        if owner_label == "owner1":
+            rows.extend(
+                [
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "customer-a", "ops"),
+                        "owner_id": owner_id,
+                        "sender_id": customer_a["email"],
+                        "sender_name": customer_a["name"],
+                        "sender_role": "customer",
+                        "memory_type": "operations",
+                        "content": "Customer wants bundle quote, stock confirmation, and delivery ETA combined in a single approval-ready reply.",
+                        "summary": "Customer prefers one-message quote + ETA",
+                        "tags": json.dumps(
+                            ["customer-preference", "sales-flow", "workspace-bundles"]
+                        ),
+                        "importance": "0.78",
+                        "created_at": "2026-03-22T09:40:00+00:00",
+                    },
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "supplier-a", "risk"),
+                        "owner_id": owner_id,
+                        "sender_id": supplier_a["email"],
+                        "sender_name": supplier_a["name"],
+                        "sender_role": "supplier",
+                        "memory_type": "risk",
+                        "content": "Supplier flagged keyboard switch volatility; protect onboarding-kit stock with a 3-week buffer.",
+                        "summary": "Protect onboarding-kit stock buffer",
+                        "tags": json.dumps(["supply-risk", "inventory", "bundles"]),
+                        "importance": "0.84",
+                        "created_at": "2026-03-24T11:15:00+00:00",
+                    },
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "partner-b", "growth"),
+                        "owner_id": owner_id,
+                        "sender_id": partner_b["email"],
+                        "sender_name": partner_b["name"],
+                        "sender_role": "partner",
+                        "memory_type": "growth",
+                        "content": "Partner performs better when weekly bundle availability and fitout-ready offers are sent every Monday morning.",
+                        "summary": "Weekly bundle update drives partner leads",
+                        "tags": json.dumps(["partner", "cadence", "lead-gen"]),
+                        "importance": "0.66",
+                        "created_at": "2026-03-26T07:55:00+00:00",
+                    },
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "investor-c", "finance"),
+                        "owner_id": owner_id,
+                        "sender_id": investor_c["email"],
+                        "sender_name": investor_c["name"],
+                        "sender_role": "investor",
+                        "memory_type": "finance",
+                        "content": "Investor wants bundle margin trend tied to repeat-order rate and stock risk in the monthly review.",
+                        "summary": "Investor tracks bundle margin + repeat orders",
+                        "tags": json.dumps(["finance", "investor-reporting", "repeat-orders"]),
+                        "importance": "0.81",
+                        "created_at": "2026-03-28T14:20:00+00:00",
+                    },
+                ]
+            )
+        else:
+            rows.extend(
+                [
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "customer-a", "ops"),
+                        "owner_id": owner_id,
+                        "sender_id": customer_a["email"],
+                        "sender_name": customer_a["name"],
+                        "sender_role": "customer",
+                        "memory_type": "operations",
+                        "content": "Customer wants MOQ, delivery day, and branding options combined into a single reorder-ready message.",
+                        "summary": "Customer prefers reorder-ready MOQ + delivery summary",
+                        "tags": json.dumps(["customer-preference", "wholesale", "reorder"]),
+                        "importance": "0.78",
+                        "created_at": "2026-03-22T09:40:00+00:00",
+                    },
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "supplier-a", "risk"),
+                        "owner_id": owner_id,
+                        "sender_id": supplier_a["email"],
+                        "sender_name": supplier_a["name"],
+                        "sender_role": "supplier",
+                        "memory_type": "risk",
+                        "content": "Packaging supplier warned that printed cup lead times stretch during promo periods; lock artwork earlier.",
+                        "summary": "Printed cup lead time risk before promos",
+                        "tags": json.dumps(["supply-risk", "packaging", "promo-planning"]),
+                        "importance": "0.84",
+                        "created_at": "2026-03-24T11:15:00+00:00",
+                    },
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "partner-b", "growth"),
+                        "owner_id": owner_id,
+                        "sender_id": partner_b["email"],
+                        "sender_name": partner_b["name"],
+                        "sender_role": "partner",
+                        "memory_type": "growth",
+                        "content": "Partner converts best when launch packs include ready-to-post seasonal copy and stock-safe pricing.",
+                        "summary": "Seasonal launch packs improve partner conversion",
+                        "tags": json.dumps(["partner", "campaign", "seasonal-offer"]),
+                        "importance": "0.66",
+                        "created_at": "2026-03-26T07:55:00+00:00",
+                    },
+                    {
+                        "id": seed_uuid("memory-entry", owner_id, "investor-c", "finance"),
+                        "owner_id": owner_id,
+                        "sender_id": investor_c["email"],
+                        "sender_name": investor_c["name"],
+                        "sender_role": "investor",
+                        "memory_type": "finance",
+                        "content": "Investor wants wholesale reorder trend, packaging margin, and campaign ROI reviewed together every month.",
+                        "summary": "Investor tracks reorder trend + campaign ROI",
+                        "tags": json.dumps(["finance", "investor-reporting", "wholesale-growth"]),
+                        "importance": "0.81",
+                        "created_at": "2026-03-28T14:20:00+00:00",
+                    },
+                ]
+            )
     return rows
 
 
@@ -670,22 +886,31 @@ def generate_conversation_sender_memories(threads: list[dict[str, Any]]) -> list
 def generate_daily_digests(owners: list[dict[str, str]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for owner in owners:
-        idx = owner_index(owner)
+        if owner["label"] == "owner1":
+            title_1 = "Northstar Daily Ops - Bundle availability and supplier cover"
+            summary_1 = "Reviewed onboarding bundle stock, confirmed one supplier buffer action, and kept all quotes margin-safe."
+            title_2 = "Northstar Daily Ops - Customer follow-ups and repeat orders"
+            summary_2 = "Closed two customer quote threads, captured one buying preference, and queued investor notes on repeat-order momentum."
+        else:
+            title_1 = "Luna Daily Ops - Packaging lead times and promo planning"
+            summary_1 = "Reviewed print lead times, aligned next wholesale promo timing, and protected packaging margin before launch."
+            title_2 = "Luna Daily Ops - Reorders and café growth signals"
+            summary_2 = "Closed reorder conversations, captured one branding preference, and prepared investor notes on wholesale repeat demand."
         rows.extend(
             [
                 {
                     "id": seed_uuid("daily-digest", owner["id"], "day-1"),
                     "owner_id": owner["id"],
-                    "title": f"Owner {idx} Daily Ops - Supplier coordination",
-                    "summary": "Reviewed lead times, raised one approval for policy-edge discount, and confirmed replenishment window.",
+                    "title": title_1,
+                    "summary": summary_1,
                     "risk": "medium",
                     "created_at": "2026-03-30T18:00:00+00:00",
                 },
                 {
                     "id": seed_uuid("daily-digest", owner["id"], "day-2"),
                     "owner_id": owner["id"],
-                    "title": f"Owner {idx} Daily Ops - Customer follow-ups",
-                    "summary": "Closed two customer threads, captured one long-term preference, and prepared investor update points.",
+                    "title": title_2,
+                    "summary": summary_2,
                     "risk": "low",
                     "created_at": "2026-03-31T18:00:00+00:00",
                 },
@@ -700,6 +925,27 @@ def generate_memory_update_proposals(customers: list[dict[str, Any]]) -> list[di
     for owner_id, owner_customers in by_owner.items():
         pending = next(c for c in owner_customers if _email_suffix(c["email"]) == "A")
         approved = next(c for c in owner_customers if _email_suffix(c["email"]) == "B")
+        owner_label = _owner_label_from_seed_email(pending["email"])
+        pending_content = (
+            "Prefers stock-safe bundle quote, delivery ETA, and final terms in one approval-ready message."
+            if owner_label == "owner1"
+            else "Prefers MOQ, delivery day, and branding options grouped into one reorder-ready reply."
+        )
+        pending_summary = (
+            "Bundle quote + ETA preference"
+            if owner_label == "owner1"
+            else "MOQ + delivery + branding preference"
+        )
+        approved_content = (
+            "Accepted staged billing for larger team-setup orders with standard safeguards."
+            if owner_label == "owner1"
+            else "Accepted standard wholesale payment terms for recurring café packaging orders."
+        )
+        approved_summary = (
+            "Staged billing accepted for team orders"
+            if owner_label == "owner1"
+            else "Wholesale payment terms accepted"
+        )
         rows.append(
             {
                 "id": seed_uuid("memory-proposal", owner_id, "pending", pending["id"]),
@@ -713,15 +959,15 @@ def generate_memory_update_proposals(customers: list[dict[str, Any]]) -> list[di
                             "sender_name": pending["name"],
                             "sender_role": "customer",
                             "memory_type": "preference",
-                            "content": "Prefers concise ETA + final terms in one message.",
-                            "summary": "Concise ETA + terms preference",
+                            "content": pending_content,
+                            "summary": pending_summary,
                             "tags": ["communication", "preference"],
                             "importance": 0.72,
                         }
                     ],
                     separators=(",", ":"),
                 ),
-                "reason": "Detected recurring communication preference during demo conversation.",
+                "reason": "Detected stable sales-communication preference from repeated demo interactions.",
                 "risk_level": "medium",
                 "status": "pending",
             }
@@ -739,15 +985,15 @@ def generate_memory_update_proposals(customers: list[dict[str, Any]]) -> list[di
                             "sender_name": approved["name"],
                             "sender_role": "customer",
                             "memory_type": "billing",
-                            "content": "Accepted net terms with standard safeguards.",
-                            "summary": "Net terms accepted",
+                            "content": approved_content,
+                            "summary": approved_summary,
                             "tags": ["finance"],
                             "importance": 0.63,
                         }
                     ],
                     separators=(",", ":"),
                 ),
-                "reason": "Owner previously approved this billing update.",
+                "reason": "Owner previously approved this commercial memory update.",
                 "risk_level": "low",
                 "status": "approved",
             }
@@ -756,80 +1002,14 @@ def generate_memory_update_proposals(customers: list[dict[str, Any]]) -> list[di
 
 
 def generate_held_replies(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_owner = _group_by_owner(threads)
-    rows: list[dict[str, Any]] = []
-    for owner_id, owner_threads in by_owner.items():
-        pending = owner_threads[0]
-        approved = owner_threads[1]
-        rows.append(
-            {
-                "id": seed_uuid("held-reply", owner_id, "pending", pending["id"]),
-                "owner_id": owner_id,
-                "thread_id": pending["id"],
-                "sender_id": pending["sender_external_id"],
-                "sender_name": pending["sender_name"],
-                "sender_role": pending["sender_role"],
-                "reply_text": "We can make a one-time commercial exception beyond policy limits.",
-                "risk_level": "high",
-                "risk_flags": json.dumps(["pricing-policy-breach"], separators=(",", ":")),
-                "status": "pending",
-                "reviewer_notes": "",
-            }
-        )
-        rows.append(
-            {
-                "id": seed_uuid("held-reply", owner_id, "approved", approved["id"]),
-                "owner_id": owner_id,
-                "thread_id": approved["id"],
-                "sender_id": approved["sender_external_id"],
-                "sender_name": approved["sender_name"],
-                "sender_role": approved["sender_role"],
-                "reply_text": "Approved after review. Proceed with standard contractual safeguards.",
-                "risk_level": "medium",
-                "risk_flags": json.dumps(["manual-review"], separators=(",", ":")),
-                "status": "approved",
-                "reviewer_notes": "Approved with safeguards",
-            }
-        )
-    return rows
+    return []
 
 
 def generate_reply_review_records(held_replies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for held in held_replies:
-        pending = held["status"] == "pending"
-        rows.append(
-            {
-                "id": seed_uuid("reply-review", held["id"]),
-                "owner_id": held["owner_id"],
-                "trace_id": seed_uuid("trace", held["id"]),
-                "thread_id": held["thread_id"],
-                "sender_id": held["sender_id"],
-                "sender_name": held["sender_name"],
-                "sender_role": held["sender_role"],
-                "raw_message": "Request includes policy-sensitive commercial term.",
-                "reply_text": held["reply_text"],
-                "risk_level": held["risk_level"],
-                "risk_flags": held["risk_flags"],
-                "approval_rule_flags": json.dumps(
-                    ["human-approval-required"], separators=(",", ":")
-                ),
-                "requires_approval": "true",
-                "final_decision": "held_pending_review" if pending else "approved_and_sent",
-                "review_label": "needs-owner-review" if pending else "approved",
-                "reviewer_reason": "Pending owner decision"
-                if pending
-                else "Approved after owner review",
-                "held_reply_id": held["id"],
-                "message_id": "",
-            }
-        )
-    return rows
+    return []
 
 
-def generate_pending_approvals(
-    memory_proposals: list[dict[str, Any]], held_replies: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
+def generate_pending_approvals(memory_proposals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for proposal in memory_proposals:
         if proposal["status"] != "pending":
@@ -846,23 +1026,6 @@ def generate_pending_approvals(
                 "status": "pending",
                 "proposal_id": proposal["id"],
                 "held_reply_id": "",
-            }
-        )
-    for held in held_replies:
-        if held["status"] != "pending":
-            continue
-        rows.append(
-            {
-                "id": seed_uuid("pending-approval", "reply", held["id"]),
-                "owner_id": held["owner_id"],
-                "title": f"Reply requires approval ({held['risk_level']} risk)",
-                "sender": held["sender_name"],
-                "preview": held["reply_text"][:200],
-                "proposal_type": "reply-approval",
-                "risk_level": held["risk_level"],
-                "status": "pending",
-                "proposal_id": "",
-                "held_reply_id": held["id"],
             }
         )
     return rows
@@ -891,7 +1054,7 @@ def main() -> None:
     memory_update_proposals = generate_memory_update_proposals(customers)
     held_replies = generate_held_replies(conversation_threads)
     reply_review_records = generate_reply_review_records(held_replies)
-    pending_approvals = generate_pending_approvals(memory_update_proposals, held_replies)
+    pending_approvals = generate_pending_approvals(memory_update_proposals)
 
     write_csv(
         "products.csv",
