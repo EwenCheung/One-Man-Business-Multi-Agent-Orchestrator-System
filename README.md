@@ -43,7 +43,7 @@ It handles stakeholder conversations across web and Telegram, grounds replies in
 - **Run the backend locally:** [`uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000`](#backend)
 - **Run the frontend locally:** [`npm run dev`](#frontend)
 - **Reset the seed dataset:** [`uv run python backend/db/reset_and_seed_supabase.py`](#reset-and-seed-the-database)
-- **Read the paper:** [`paper/paper.tex`](paper/paper.tex)
+- **Read the paper:** [`paper/paper.tex`](paper/paper.pdf)
 
 ## Overview
 
@@ -56,7 +56,7 @@ It is designed around four ideas:
 - **Risk-governed automation** — high-stakes replies are held for approval instead of being sent automatically.
 - **Human-in-the-loop operations** — the owner remains the final decision maker for risky business communication.
 
-The accompanying paper in [`paper/paper.tex`](paper/paper.tex) describes the architectural rationale, risk model, and evaluation framing in more detail.
+The accompanying paper in [`paper/paper.pdf`](paper/paper.pdf) describes the architectural rationale, risk model, and evaluation framing in more detail.
 
 ### Why this project is interesting
 
@@ -230,7 +230,7 @@ That makes the system a **collaborative decision system**, not a fully autonomou
 
 ### How the paper and implementation line up
 
-The methodology described in [`paper/paper.tex`](paper/paper.tex) maps directly to the implementation:
+The methodology described in [`paper/paper.pdf`](paper/paper.pdf) maps directly to the implementation:
 
 - **LangGraph supervisor workflow** → [`backend/graph/pipeline_graph.py`](backend/graph/pipeline_graph.py)
 - **orchestrator planning** → [`backend/agents/orchestrator_agent.py`](backend/agents/orchestrator_agent.py)
@@ -239,7 +239,7 @@ The methodology described in [`paper/paper.tex`](paper/paper.tex) maps directly 
 - **database-backed memory and messaging** → [`backend/db/models.py`](backend/db/models.py)
 
 > [!NOTE]
-> If you want the full academic framing — including decision-theoretic reasoning, harness engineering, fairness/responsibility discussion, and evaluation notes — read [`paper/paper.tex`](paper/paper.tex). The README focuses on the implementation-facing version of that methodology.
+> If you want the full academic framing — including decision-theoretic reasoning, harness engineering, fairness/responsibility discussion, and evaluation notes — read [`paper/paper.pdf`](paper/paper.pdf). The README focuses on the implementation-facing version of that methodology.
 
 Key implementation files:
 
